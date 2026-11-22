@@ -22,7 +22,7 @@ jobs:
           mkdir -p media
           for pair in $FILES; do
             name="${pair%%=*}"; url="${pair#*=}"
-            case "$url" in https://assets.vidiq.com/*) ;; *) echo "skip $url"; continue;; esac
+            case "$url" in https://assets.vidiq.com/*|https://ai-music-tracks.s3.us-east-1.amazonaws.com/*) ;; *) echo "skip $url"; continue;; esac
             curl -fsSL "$url" -o "media/$name"
           done
           ls -la media
