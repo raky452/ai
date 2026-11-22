@@ -32,4 +32,7 @@ if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
 Compress-Archive -Force -Path dist\TechnoForesightAssistant\* -DestinationPath "dist\TechnoForesightAssistant-Portable-$version.zip"
+# Stable names so websites can link to .../releases/latest/download/<name>
+Copy-Item "dist\TechnoForesightAssistant-Setup-$version.exe" "dist\TechnoForesightAssistant-Setup.exe" -Force
+Copy-Item "dist\TechnoForesightAssistant-Portable-$version.zip" "dist\TechnoForesightAssistant-Portable.zip" -Force
 Get-ChildItem dist -File | Format-Table Name, Length
