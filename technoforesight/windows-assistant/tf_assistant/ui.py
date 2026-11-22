@@ -283,7 +283,7 @@ class CommandBar:
         self._setup_busy = False
 
     def _build_results(self):
-        self.listbox = tk.Listbox(self.body, font=(FONT, 11), bg=SURFACE, fg=FG, selectbackground=VIOLET,
+        self.listbox = tk.Listbox(self.body, font=(FONT, 11), bg=SURFACE, fg=FG, selectbackground=_mix(SURFACE, VIOLET, 0.7),
                                   selectforeground="#ffffff", relief="flat", highlightthickness=0, height=0,
                                   activestyle="none", bd=0)
         self.listbox.bind("<Return>", self.on_result_open)
@@ -302,6 +302,7 @@ class CommandBar:
                               height=11, padx=14, pady=10, highlightthickness=0, bd=0, spacing2=3, spacing3=4,
                               insertbackground=CYAN)
         self.answer.pack(fill="both", expand=True)
+        self.answer.tag_configure("cursor", foreground=CYAN)
         self.answer.configure(state="disabled")
 
     def _build_footer(self):
@@ -475,6 +476,7 @@ class CommandBar:
                     else:
                         self._answer_append(ev[1])
                 elif kind == "done" and ev[1] == self._generation:
+                    self._answer_done()
                     self.busy_since = None
                     self.streaming = False
                     self.pulse.stop()
@@ -662,6 +664,7 @@ class CommandBar:
             self.streaming = False
             self.pulse.stop()
             self.pulse.pack_forget()
+            self._answer_done()
             self.foot_hint.configure(text=self._hint_text())
             self.set_status("■ Stopped.", MUTED)
         else:
@@ -675,7 +678,7 @@ class CommandBar:
         self.results = items
         self.listbox.delete(0, "end")
         for label, target in items:
-            prefix = "   ▤   " if isinstance(target, Path) else "   ▶   "
+            prefix = "    ▤    " if isinstance(target, Path) else "    ›    "
             self.listbox.insert("end", prefix + label)
         if items:
             self.listbox.configure(height=min(len(items), 7))
@@ -727,14 +730,35 @@ class CommandBar:
         self.answer_text = ""
         self.answer.configure(state="normal")
         self.answer.delete("1.0", "end")
-        self.answer.configure(state="disabled")
+        self.answer.insert("end", "▍", "cursor")   # glowing cursor while the answer streams in
+        self.answer.configure(state="disabled", height=3)
 
     def _answer_append(self, piece: str):
         self.answer_text += piece
         self.answer.configure(state="normal")
-        self.answer.insert("end", piece)
+        self.answer.insert("cursor.first" if self.answer.tag_ranges("cursor") else "end", piece)
         self.answer.see("end")
         self.answer.configure(state="disabled")
+        self._fit_answer()
+
+    def _answer_done(self):
+        if self.answer.tag_ranges("cursor"):
+            self.answer.configure(state="normal")
+            self.answer.delete("cursor.first", "cursor.last")
+            self.answer.configure(state="disabled")
+        self._fit_answer()
+
+    def _fit_answer(self):
+        """Grow the card with the answer (3 to 14 lines), then scroll."""
+        self.answer.update_idletasks()
+        try:
+            lines = int(self.answer.count("1.0", "end", "displaylines")[0])
+        except (TypeError, tk.TclError):
+            lines = int(self.answer.index("end-1c").split(".")[0])
+        want = max(3, min(14, lines))
+        if int(self.answer.cget("height")) != want:
+            self.answer.configure(height=want)
+            self._layout()
 
     def _hide_answer(self):
         if self.card.winfo_ismapped():
