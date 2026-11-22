@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "ask":
                 res = actions.Result(stream=llm.chat_stream(text))
             else:
-                res = actions.run(route(text, load_apps()), cfg, llm)
+                res = actions.run(route(text, load_apps(), cfg.connectors), cfg, llm)
             if res.message:
                 print(res.message)
             for p in res.files:

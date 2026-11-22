@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,11 +73,19 @@ class System:
 
 
 @dataclass(frozen=True)
+class Connector:
+    """manage = 'list' | 'add' | 'remove'; for opening, url is the final address."""
+    name: str
+    url: str = ""
+    manage: str = ""
+
+
+@dataclass(frozen=True)
 class AskAssistant:
     text: str
 
 
-Action = OpenApp | FindFiles | Summarize | OpenUrl | WebSearch | OpenSettings | System | AskAssistant
+Action = OpenApp | FindFiles | Summarize | OpenUrl | WebSearch | OpenSettings | System | Connector | AskAssistant
 
 _OPEN = re.compile(r"^(open|launch|start|run)\s+(.+)$", re.IGNORECASE)
 _FIND = re.compile(r"^(find|search|locate)\s+(files?\s+|for\s+)?(.+)$", re.IGNORECASE)
@@ -92,8 +101,33 @@ def _looks_like_path(text: str) -> bool:
     return bool(re.match(r"^([a-zA-Z]:[\\/]|~|\.[\\/]|\\\\)", text)) or bool(re.search(r"\.\w{1,5}$", text))
 
 
-def route(text: str, apps: list[App]) -> Action:
+_CONN_LIST = re.compile(r"^(connectors|list connectors|show connectors)$", re.IGNORECASE)
+_CONN_ADD = re.compile(r"^(add|connect)\s+connector\s+([\w-]+)\s+(\S+)$", re.IGNORECASE)
+_CONN_DEL = re.compile(r"^(remove|delete)\s+connector\s+([\w-]+)$", re.IGNORECASE)
+
+
+def _connector_url(template: str, rest: str) -> str:
+    if "{q}" in template:
+        return template.replace("{q}", urllib.parse.quote_plus(rest))
+    return template
+
+
+def route(text: str, apps: list[App], connectors: dict[str, str] | None = None) -> Action:
     text = text.strip()
+    connectors = connectors or {}
+
+    if _CONN_LIST.match(text):
+        return Connector("", manage="list")
+    if m := _CONN_ADD.match(text):
+        url = m.group(3)
+        if not re.match(r"^https?://", url, re.IGNORECASE):
+            url = "https://" + url
+        return Connector(m.group(2).lower(), url, manage="add")
+    if m := _CONN_DEL.match(text):
+        return Connector(m.group(2).lower(), manage="remove")
+    first, _, rest = text.partition(" ")
+    if first.lower() in connectors:
+        return Connector(first.lower(), _connector_url(connectors[first.lower()], rest.strip()))
 
     if _LOCK.match(text):
         return System("lock")

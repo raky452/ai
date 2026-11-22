@@ -13,10 +13,10 @@ from pathlib import Path
 
 from . import apps as apps_mod
 from . import files
-from .config import Config
+from .config import Config, save_connector
 from .llm import OllamaClient
 from .router import (
-    Action, AskAssistant, FindFiles, OpenApp, OpenSettings, OpenUrl, Summarize, System, WebSearch,
+    Action, AskAssistant, Connector, FindFiles, OpenApp, OpenSettings, OpenUrl, Summarize, System, WebSearch,
 )
 
 
@@ -52,6 +52,24 @@ def run(action: Action, cfg: Config, llm: OllamaClient) -> Result:
     if isinstance(action, WebSearch):
         webbrowser.open("https://www.google.com/search?q=" + urllib.parse.quote_plus(action.query))
         return Result(f"Searching the web for “{action.query}”", hide_window=True)
+
+    if isinstance(action, Connector):
+        if action.manage == "list":
+            rows = "\n".join(f"  {k:<16} {v}" for k, v in sorted(cfg.connectors.items()))
+            help_ = ("\n\nAdd your own:  add connector store https://your-site.com\n"
+                     "Use {q} for searches:  add connector amz https://example.com/search?q={q}\n"
+                     "Remove:  remove connector store")
+            return Result(f"{len(cfg.connectors)} connectors", stream=iter([rows + help_]))
+        if action.manage == "add":
+            cfg.connectors[action.name] = action.url
+            save_connector(action.name, action.url)
+            return Result(f"✔ Connector '{action.name}' added. Type '{action.name}' to open {action.url}")
+        if action.manage == "remove":
+            existed = cfg.connectors.pop(action.name, None) is not None
+            save_connector(action.name, None)
+            return Result(f"✔ Connector '{action.name}' removed." if existed else f"No connector named '{action.name}'.")
+        _open(action.url)
+        return Result(f"🔗 {action.name} → {action.url}", hide_window=True)
 
     if isinstance(action, System):
         if action.command == "lock":

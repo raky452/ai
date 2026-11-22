@@ -44,6 +44,7 @@ CHIPS = [
     ("⌕  Find files", "find files "),
     ("▤  Summarise", "summarise "),
     ("⚙  Settings", "settings "),
+    ("🔗  Connectors", "connectors"),
     ("⏻  Lock PC", "lock pc"),
 ]
 
@@ -249,7 +250,7 @@ class CommandBar:
         self.entry.bind("<Down>", self.focus_results)
         self.entry.bind("<FocusIn>", lambda e: (self._clear_placeholder(), self.input_frame.configure(highlightbackground=CYAN)))
         self.entry.bind("<FocusOut>", lambda e: self.input_frame.configure(highlightbackground=LINE))
-        self.placeholder = "Ask anything, or try: open chrome · find files invoice · settings wifi"
+        self.placeholder = "Ask anything, or try: open chrome · find files invoice · yt telugu songs"
         self._show_placeholder()
 
     def _build_chips(self):
@@ -600,7 +601,7 @@ class CommandBar:
         text = self.text()
         if not text:
             return
-        action = route(text, self.apps)
+        action = route(text, self.apps, self.cfg.connectors)
         self._generation += 1
         gen = self._generation
         self.busy_since = time.monotonic()

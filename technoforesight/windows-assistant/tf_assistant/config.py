@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 try:  # Python 3.11+
@@ -13,6 +13,15 @@ except ModuleNotFoundError:  # pragma: no cover
 
 APP_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "TechnoForesight"
 CONFIG_PATH = APP_DIR / "config.toml"
+
+
+DEFAULT_CONNECTORS = {
+    "yt": "https://www.youtube.com/results?search_query={q}",
+    "maps": "https://www.google.com/maps/search/{q}",
+    "gmail": "https://mail.google.com",
+    "drive": "https://drive.google.com",
+    "technoforesight": "https://technoforesight.in",
+}
 
 
 @dataclass
@@ -30,6 +39,8 @@ class Config:
     # Language the AI answers in (see llm.LANGUAGES): English, Telugu, Hindi, Tamil, ...
     response_language: str = "English"
     assistant_name: str = "TechnoForesight Assistant"
+    # Connectors: one word opens a website or tool. "{q}" is replaced by the rest of what you type.
+    connectors: dict = field(default_factory=lambda: dict(DEFAULT_CONNECTORS))
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
@@ -40,7 +51,9 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         data = tomllib.load(fh)
     known = {f.name for f in fields(Config)}
     for key, value in data.items():
-        if key in known:
+        if key == "connectors" and isinstance(value, dict):
+            cfg.connectors.update({str(k).lower(): str(v) for k, v in value.items()})
+        elif key in known:
             setattr(cfg, key, tuple(value) if key == "search_roots" else value)
     return cfg
 
@@ -63,10 +76,41 @@ def save_setting(key: str, value: str, path: Path = CONFIG_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     new_line = f'{key} = "{value}"'
-    for i, line in enumerate(lines):
+    first_table = next((i for i, ln in enumerate(lines) if ln.strip().startswith("[")), len(lines))
+    for i, line in enumerate(lines[:first_table]):
         if "=" in line and not line.lstrip().startswith("#") and line.split("=", 1)[0].strip() == key:
             lines[i] = new_line
             break
     else:
-        lines.append(new_line)
+        lines.insert(first_table, new_line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _toml_str(v: str) -> str:
+    return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def save_connector(name: str, url: str | None, path: Path = CONFIG_PATH) -> None:
+    """Adds/updates (url) or removes (url=None) a connector in the [connectors] table."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    name = name.lower()
+    start = next((i for i, ln in enumerate(lines) if ln.strip() == "[connectors]"), None)
+    if start is None:
+        if url is None:
+            return
+        lines += ["", "[connectors]"]
+        start = len(lines) - 1
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("[")), len(lines))
+    entry = f"{name} = {_toml_str(url)}" if url is not None else None
+    for i in range(start + 1, end):
+        if "=" in lines[i] and lines[i].split("=", 1)[0].strip().strip('"').lower() == name:
+            if entry is None:
+                del lines[i]
+            else:
+                lines[i] = entry
+            break
+    else:
+        if entry is not None:
+            lines.insert(end, entry)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -9,6 +9,9 @@ An **offline AI command bar** for Windows 10/11. Press **Alt+Space** from anywhe
 | `summarise C:\Users\you\Downloads\report.pdf` | Summarises PDF, Word (.docx) or text files with the local AI |
 | `settings wifi` · `settings bluetooth` · `settings display` | Jumps straight to that Windows Settings page |
 | `lock pc` | Locks the computer |
+| `yt telugu songs` · `maps hyderabad` · `gmail` | **Connectors**: one word opens a website or tool (`connectors` lists them) |
+| `add connector store https://your-site.com` | Adds your own connector (use `{q}` for search links); `remove connector store` |
+| 🌐 menu | AI answers in English, Telugu, Hindi, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Odia or Urdu |
 | `technoforesight.in` · `google ipl score` | Opens a website / searches the web |
 | anything else | Answered by an AI model running **on your PC**. Nothing is uploaded |
 
@@ -29,6 +32,11 @@ Optional file: `%APPDATA%\TechnoForesight\config.toml`
 hotkey = "ctrl+space"        # default alt+space
 model = "qwen3:8b"           # any model from ollama.com/library
 search_roots = ["~/Desktop", "~/Documents", "D:/Work"]
+response_language = "Telugu"
+
+[connectors]
+store = "https://technoforesight.in"
+amz = "https://www.example.com/search?q={q}"
 ```
 
 ## Build from source

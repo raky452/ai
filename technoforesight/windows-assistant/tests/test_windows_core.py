@@ -221,3 +221,29 @@ def test_response_language_prompt():
     c.language = "Hindi"
     assert "हिन्दी" in c.system_prompt
     assert "English" in language_instruction("English")
+
+
+def test_connectors_routing_and_saving(tmp_path):
+    from tf_assistant.config import DEFAULT_CONNECTORS, load_config, save_connector, save_setting
+    from tf_assistant.router import Connector
+    conns = dict(DEFAULT_CONNECTORS, store="https://technoforesight.in")
+    assert route("store", APPS, conns) == Connector("store", "https://technoforesight.in")
+    yt = route("yt telugu songs", APPS, conns)
+    assert yt.url == "https://www.youtube.com/results?search_query=telugu+songs"
+    assert route("add connector shop technoforesight.in/converters", APPS, conns) == \
+        Connector("shop", "https://technoforesight.in/converters", manage="add")
+    assert route("remove connector shop", APPS, conns).manage == "remove"
+    assert route("connectors", APPS, conns).manage == "list"
+    # apps and AI still work when no connector matches
+    assert isinstance(route("open chrome", APPS, conns), OpenApp)
+    assert isinstance(route("what is GST", APPS, conns), AskAssistant)
+
+    cfg = tmp_path / "config.toml"
+    save_connector("store", "https://technoforesight.in", cfg)
+    save_setting("model", "qwen3:1.7b", cfg)         # top-level key must stay above the table
+    save_connector("amz", "https://example.com/s?q={q}", cfg)
+    save_connector("store", None, cfg)
+    loaded = load_config(cfg)
+    assert loaded.model == "qwen3:1.7b"
+    assert loaded.connectors["amz"] == "https://example.com/s?q={q}"
+    assert "store" not in loaded.connectors and "yt" in loaded.connectors
