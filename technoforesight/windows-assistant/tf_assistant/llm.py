@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -67,9 +68,11 @@ class OllamaError(RuntimeError):
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str, assistant_name: str = "TechnoForesight Assistant"):
+    def __init__(self, base_url: str, model: str, assistant_name: str = "TechnoForesight Assistant",
+                 max_tokens: int = 700):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.max_tokens = max_tokens
         self.system_prompt = SYSTEM_PROMPT.format(name=assistant_name)
 
     def _request(self, path: str, payload: dict | None = None, timeout: float = 600):
@@ -117,14 +120,37 @@ class OllamaClient:
                 total, done = event.get("total") or 0, event.get("completed") or 0
                 yield event.get("status", ""), (done / total if total else -1.0)
 
-    def chat_stream(self, user_text: str, history: list[dict] | None = None) -> Iterator[str]:
+    def _chat_payload(self, messages: list[dict], think: bool | None) -> dict:
+        payload = {
+            "model": self.model, "messages": messages, "stream": True,
+            # Short, focused answers; a hard cap stops runaway generation on slow PCs
+            "options": {"num_predict": self.max_tokens},
+            "keep_alive": "30m",  # stay loaded so the next question starts fast
+        }
+        if think is not None:
+            payload["think"] = think
+        return payload
+
+    def chat_stream(self, user_text: str, history: list[dict] | None = None,
+                    cancel: threading.Event | None = None) -> Iterator[str]:
+        """Streams the answer. Thinking/reasoning mode is switched off: on a laptop CPU it can
+        add minutes of silent work before the first word. Setting `cancel` stops generation
+        (closing the connection makes Ollama abort the request)."""
         messages = [{"role": "system", "content": self.system_prompt}]
         messages += history or []
         messages.append({"role": "user", "content": user_text})
-        payload = {"model": self.model, "messages": messages, "stream": True}
+        try:
+            resp = self._request("/api/chat", self._chat_payload(messages, think=False))
+        except OllamaError as e:
+            if "think" not in str(e).lower():
+                raise
+            # Model or older Ollama doesn't support the think switch: ask without it
+            resp = self._request("/api/chat", self._chat_payload(messages, think=None))
         flt = ThinkFilter()
-        with self._request("/api/chat", payload) as resp:
+        with resp:
             for line in resp:
+                if cancel is not None and cancel.is_set():
+                    return
                 if not line.strip():
                     continue
                 event = json.loads(line)
@@ -141,3 +167,22 @@ class OllamaClient:
 
     def chat(self, user_text: str, history: list[dict] | None = None) -> str:
         return "".join(self.chat_stream(user_text, history)).strip()
+
+    def speed_test(self) -> float:
+        """Loads the model and generates a few words. Returns tokens per second (0 if unknown).
+        Raises OllamaError if the model can't actually run (e.g. not enough memory)."""
+        payload = {"model": self.model, "prompt": "Reply with one short sentence: hello.", "stream": False,
+                   "think": False, "options": {"num_predict": 24}, "keep_alive": "30m"}
+        try:
+            resp = self._request("/api/generate", payload, timeout=300)
+        except OllamaError as e:
+            if "think" not in str(e).lower():
+                raise
+            payload.pop("think")
+            resp = self._request("/api/generate", payload, timeout=300)
+        with resp:
+            data = json.load(resp)
+        if "error" in data:
+            raise OllamaError(data["error"])
+        count, dur = data.get("eval_count") or 0, data.get("eval_duration") or 0
+        return count / (dur / 1e9) if count and dur else 0.0

@@ -40,3 +40,30 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         if key in known:
             setattr(cfg, key, tuple(value) if key == "search_roots" else value)
     return cfg
+
+
+DEFAULT_MODEL = Config.model
+FAST_MODEL = "qwen3:1.7b"   # ~1.4 GB, roughly 2x faster on older laptops
+SLOW_TOKENS_PER_SEC = 4.0   # below this, offer the fast model
+
+
+def user_set(key: str, path: Path = CONFIG_PATH) -> bool:
+    """True if the user's config file sets `key` explicitly."""
+    if not path.exists():
+        return False
+    return any(line.split("=", 1)[0].strip() == key for line in path.read_text(encoding="utf-8").splitlines()
+               if "=" in line and not line.lstrip().startswith("#"))
+
+
+def save_setting(key: str, value: str, path: Path = CONFIG_PATH) -> None:
+    """Sets `key = "value"` in config.toml, keeping every other line as it is."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    new_line = f'{key} = "{value}"'
+    for i, line in enumerate(lines):
+        if "=" in line and not line.lstrip().startswith("#") and line.split("=", 1)[0].strip() == key:
+            lines[i] = new_line
+            break
+    else:
+        lines.append(new_line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

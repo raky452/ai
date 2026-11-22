@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ctypes
 import queue
 import sys
+import time
 import threading
 import tkinter as tk
 import webbrowser
@@ -12,7 +14,7 @@ from tkinter import ttk
 
 from . import APP_NAME, WEBSITE, actions, files
 from .apps import App, launch, load_apps
-from .config import Config
+from .config import DEFAULT_MODEL, FAST_MODEL, SLOW_TOKENS_PER_SEC, Config, save_setting, user_set
 from .llm import OllamaClient, OllamaError
 from .router import route
 from .winsys import SingleInstance, start_hotkey_listener
@@ -46,6 +48,11 @@ class CommandBar:
         except tk.TclError:
             pass
         self.root.protocol("WM_DELETE_WINDOW", self.hide)
+        # Scale pixel sizes for high-DPI screens (fonts already scale; widths must too)
+        self.scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+        self.width = int(WIDTH * self.scale)
+        self.busy_since: float | None = None   # set while waiting for the AI's first word
+        self.streaming = False
         self._build()
         self._place()
 
@@ -76,14 +83,14 @@ class CommandBar:
         self.entry.bind("<Return>", self.on_submit)
         self.entry.bind("<KeyRelease>", self.on_key_release)
         self.entry.bind("<Down>", self.focus_results)
-        self.root.bind("<Escape>", lambda e: self.hide())
+        self.root.bind("<Escape>", self.on_escape)
 
         self.placeholder = "Open apps · find files · summarise a PDF · settings wifi · or ask anything"
         self._show_placeholder()
         self.entry.bind("<FocusIn>", lambda e: self._clear_placeholder())
 
         self.status = tk.Label(outer, text="", fg=ACCENT, bg=BG, font=(FONT, 10), anchor="w", justify="left",
-                               wraplength=WIDTH - 40)
+                               wraplength=int((WIDTH - 40) * self.scale))
         self.status.pack(fill="x")
 
         # Setup panel (shown only when Ollama or the model is missing)
@@ -106,21 +113,25 @@ class CommandBar:
 
         foot = tk.Frame(outer, bg=BG)
         foot.pack(fill="x", side="bottom", pady=(8, 0))
-        tk.Label(foot, text="Esc to hide", fg=MUTED, bg=BG, font=(FONT, 8)).pack(side="left")
+        self.foot_hint = tk.Label(foot, text="Esc to hide", fg=MUTED, bg=BG, font=(FONT, 8))
+        self.foot_hint.pack(side="left")
         link = tk.Label(foot, text="technoforesight.in", fg=MUTED, bg=BG, font=(FONT, 8, "underline"), cursor="hand2")
         link.pack(side="right")
         link.bind("<Button-1>", lambda e: webbrowser.open(WEBSITE))
 
     def _place(self):
         self.root.update_idletasks()
-        sw = self.root.winfo_screenwidth()
-        self.root.geometry(f"{WIDTH}x{self.root.winfo_reqheight()}+{(sw - WIDTH) // 2}+{int(self.root.winfo_screenheight() * 0.18)}")
+        self._apply_geometry()
 
     def _resize(self):
         self.root.geometry("")  # let tk compute natural height
         self.root.update_idletasks()
-        sw = self.root.winfo_screenwidth()
-        self.root.geometry(f"{WIDTH}x{self.root.winfo_reqheight()}+{(sw - WIDTH) // 2}+{int(self.root.winfo_screenheight() * 0.18)}")
+        self._apply_geometry()
+
+    def _apply_geometry(self):
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w = min(self.width, sw - 40)
+        self.root.geometry(f"{w}x{self.root.winfo_reqheight()}+{max(0, (sw - w) // 2)}+{int(sh * 0.15)}")
 
     # ---------- placeholder ----------
     def _show_placeholder(self):
@@ -163,8 +174,14 @@ class CommandBar:
                     self.set_status(ev[1], ev[2] if len(ev) > 2 else ACCENT)
                 elif kind == "apps":
                     self.apps = ev[1]
-                elif kind == "answer_start":
+                elif kind == "answer_start" and ev[1] == self._generation:
+                    self.busy_since = None
+                    self.streaming = True
                     self._answer_start()
+                elif kind == "done" and ev[1] == self._generation:
+                    self.busy_since = None
+                    self.streaming = False
+                    self.foot_hint.configure(text="Esc to hide")
                 elif kind == "answer" and ev[2] == self._generation:
                     self._answer_append(ev[1])
                 elif kind == "files":
@@ -193,6 +210,7 @@ class CommandBar:
     def _check_engine(self):
         problem = self.llm.check()
         if problem is None:
+            self._warm_up()
             return
         if "Can't reach" in problem:
             self.events.put(("setup", "install"))
@@ -200,11 +218,32 @@ class CommandBar:
             self.events.put(("setup", "pull"))
         self.events.put(("status", "⚠ " + problem, ERR))
 
+    def _warm_up(self):
+        """Loads the model and measures speed, so the first real question isn't a mystery wait,
+        and slow laptops get offered the faster model."""
+        self.events.put(("status", "Warming up the AI model (the first time can take up to a minute)…"))
+        try:
+            tps = self.llm.speed_test()
+        except OllamaError as e:
+            msg = str(e)
+            if "memory" in msg.lower():
+                msg += "  Close some apps (e.g. browser tabs) or switch to the smaller model."
+                self.events.put(("setup", "fast"))
+            self.events.put(("status", "⚠ AI model couldn't start: " + msg, ERR))
+            return
+        speed = f" ({tps:.1f} words/sec on this PC)" if tps else ""
+        if tps and tps < SLOW_TOKENS_PER_SEC and self.llm.model == DEFAULT_MODEL and not user_set("model"):
+            self.events.put(("setup", "fast"))
+            self.events.put(("status", f"✔ Ready, but slow on this PC{speed}. A smaller model answers about twice as fast."))
+        else:
+            self.events.put(("status", f"✔ AI ready{speed}. Ask me anything!"))
+
     # ---------- setup panel ----------
     def _show_setup(self, mode: str):
         self.setup_mode = mode
         label = {"install": "Install Ollama (free AI engine)", "pull": f"Download AI model ({self.cfg.model}, ~2.5 GB)",
-                 "recheck": "I've installed it, check again"}[mode]
+                 "recheck": "I've installed it, check again",
+                 "fast": f"Switch to faster model ({FAST_MODEL}, ~1.4 GB)"}[mode]
         self.setup_btn.configure(text=label)
         self.setup.pack(fill="x", pady=(6, 4), before=self.status)
         self._resize()
@@ -217,14 +256,17 @@ class CommandBar:
             self.setup.pack_forget()
             self.set_status("Checking…")
             threading.Thread(target=self._check_engine_then_ok, daemon=True).start()
-        elif self.setup_mode == "pull":
+        elif self.setup_mode in ("pull", "fast"):
+            if self.setup_mode == "fast":
+                self.llm.model = self.cfg.model = FAST_MODEL
+                save_setting("model", FAST_MODEL)
             self.setup_btn.configure(state="disabled")
             self.progress.pack(side="left", padx=12)
             threading.Thread(target=self._pull_model, daemon=True).start()
 
     def _check_engine_then_ok(self):
         if self.llm.check() is None:
-            self.events.put(("status", "✔ AI engine ready. Ask me anything!"))
+            self._warm_up()
         else:
             self._check_engine()
 
@@ -234,8 +276,8 @@ class CommandBar:
                 pct = f" {frac * 100:.0f}%" if frac >= 0 else ""
                 self.events.put(("status", f"Downloading model: {status}{pct}"))
                 self.events.put(("progress", frac))
-            self.events.put(("status", "✔ Model ready. Ask me anything!"))
             self.events.put(("setup_hide",))
+            self._warm_up()
         except OllamaError as e:
             self.events.put(("status", f"⚠ {e}", ERR))
             self.events.put(("setup_enable",))
@@ -256,7 +298,8 @@ class CommandBar:
         action = route(text, self.apps)
         self._generation += 1
         gen = self._generation
-        self.set_status("Thinking…")
+        self.busy_since = time.monotonic()
+        self._tick(gen)
 
         def worker():
             try:
@@ -271,13 +314,24 @@ class CommandBar:
                     self.events.put(("hide",))
                     return
                 if res.stream is not None:
-                    self.events.put(("answer_start",))
-                    for piece in res.stream:
-                        if gen != self._generation:
-                            return
-                        self.events.put(("answer", piece, gen))
+                    first = True
+                    try:
+                        for piece in res.stream:
+                            if gen != self._generation:
+                                return  # cancelled: leaving the loop closes the request
+                            if first:
+                                self.events.put(("answer_start", gen))
+                                first = False
+                            self.events.put(("answer", piece, gen))
+                    finally:
+                        res.stream.close()
+                        self.events.put(("done", gen))
+                    if first and gen == self._generation:
+                        self.events.put(("status", "The AI returned an empty answer. Try rephrasing.", ERR))
             except (OllamaError, OSError, RuntimeError) as e:
-                self.events.put(("status", f"⚠ {e}", ERR))
+                if gen == self._generation:
+                    self.events.put(("done", gen))
+                    self.events.put(("status", f"⚠ {e}", ERR))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -330,7 +384,7 @@ class CommandBar:
         self.answer.delete("1.0", "end")
         self.answer.configure(state="disabled")
         self.answer.pack(fill="both", expand=True, pady=(6, 0))
-        if self.status.cget("text") == "Thinking…":
+        if self.status.cget("text").startswith("Thinking…"):
             self.set_status("")
         self._resize()
 
@@ -345,6 +399,26 @@ class CommandBar:
             self.answer.pack_forget()
             self._resize()
 
+    def _tick(self, gen: int):
+        """Shows 'Thinking… 12s' until the first word arrives, so the app never looks frozen."""
+        if gen != self._generation or self.busy_since is None:
+            return
+        secs = int(time.monotonic() - self.busy_since)
+        hint = "  (older laptops can take 20-60s for the first answer)" if secs >= 8 else ""
+        self.set_status(f"Thinking… {secs}s{hint}")
+        self.foot_hint.configure(text="Esc to stop")
+        self.root.after(1000, lambda: self._tick(gen))
+
+    def on_escape(self, _event=None):
+        if self.busy_since is not None or self.streaming:
+            self._generation += 1  # worker sees the change and closes the request
+            self.busy_since = None
+            self.streaming = False
+            self.foot_hint.configure(text="Esc to hide")
+            self.set_status("Stopped.")
+        else:
+            self.hide()
+
     def set_status(self, text: str, color: str = ACCENT):
         self.status.configure(text=text, fg=color)
 
@@ -352,7 +426,21 @@ class CommandBar:
         self.root.mainloop()
 
 
+def _enable_dpi_awareness() -> None:
+    """Without this, Windows bitmap-scales the window on high-DPI screens: blurry and off-centre."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # system-DPI aware
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
+
+
 def run_gui(cfg: Config) -> int:
+    _enable_dpi_awareness()
     instance = SingleInstance()
     if not instance.is_primary:
         instance.signal_primary()  # already running: just pop its window up

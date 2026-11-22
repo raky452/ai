@@ -141,6 +141,10 @@ class _Fake(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         self.send_response(200)
         self.end_headers()
+        _Fake.last_body = body
+        if self.path == "/api/generate":
+            self.wfile.write(json.dumps({"response": "Hello!", "eval_count": 20, "eval_duration": 4_000_000_000}).encode())
+            return
         if self.path == "/api/pull":
             events = [{"status": "pulling manifest"}, {"status": "downloading", "total": 100, "completed": 50},
                       {"status": "success"}]
@@ -163,7 +167,33 @@ def test_ollama(server):
     c = OllamaClient(server, "qwen3:4b")
     assert c.check() is None
     assert c.chat("hi") == "Namaste!"
+    # thinking is switched off and answers are capped so slow PCs never stall silently
+    assert _Fake.last_body["think"] is False
+    assert _Fake.last_body["options"]["num_predict"] == 700
+    assert c.speed_test() == pytest.approx(5.0)
     assert list(c.pull_stream())[1] == ("downloading", 0.5)
     assert "ollama pull" in OllamaClient(server, "qwen3:8b").check()
     with pytest.raises(OllamaError):
         OllamaClient("http://127.0.0.1:9", "x").installed_models()
+
+
+def test_chat_cancel(server):
+    import threading as _t
+    cancel = _t.Event()
+    stream = OllamaClient(server, "qwen3:4b").chat_stream("hi", cancel=cancel)
+    cancel.set()
+    assert list(stream) == []
+
+
+def test_save_setting(tmp_path):
+    from tf_assistant.config import load_config, save_setting, user_set
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('# my settings\nhotkey = "ctrl+space"\n')
+    assert not user_set("model", cfg)
+    save_setting("model", "qwen3:1.7b", cfg)
+    save_setting("model", "qwen3:0.6b", cfg)
+    assert user_set("model", cfg)
+    text = cfg.read_text()
+    assert text.count("model =") == 1 and "# my settings" in text
+    loaded = load_config(cfg)
+    assert loaded.model == "qwen3:0.6b" and loaded.hotkey == "ctrl+space"
