@@ -24,6 +24,9 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
+; The assistant keeps running in the background (for Alt+Space); close it before replacing files
+CloseApplications=force
+RestartApplications=no
 
 [Tasks]
 Name: "startup"; Description: "Start automatically when I sign in (so Alt+Space always works)"; GroupDescription: "Options:"
@@ -39,3 +42,18 @@ Name: "{userstartup}\TechnoForesight Assistant"; Filename: "{app}\TechnoForesigh
 
 [Run]
 Filename: "{app}\TechnoForesightAssistant.exe"; Description: "Launch TechnoForesight Assistant now"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM TechnoForesightAssistant.exe"; Flags: runhidden; RunOnceId: "StopAssistant"
+
+[Code]
+// Stop a running copy (it lives in the background for the Alt+Space hotkey) so its files can be replaced.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM TechnoForesightAssistant.exe', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(800);
+  Result := '';
+end;
