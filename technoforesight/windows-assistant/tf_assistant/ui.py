@@ -21,7 +21,7 @@ from . import APP_NAME, WEBSITE, actions, files
 from .apps import App, launch, load_apps
 from .config import DEFAULT_MODEL, FAST_MODEL, SLOW_TOKENS_PER_SEC, Config, save_setting, user_set
 from .llm import LANGUAGE_BY_NAME, LANGUAGES, RESET, OllamaClient, OllamaError
-from .router import route
+from .router import UseModel, route
 from .winsys import SingleInstance, start_hotkey_listener
 
 # ---------- design tokens ----------
@@ -397,6 +397,57 @@ class CommandBar:
         finally:
             menu.grab_release()
 
+    # ---------- model choice ----------
+    def _model_for_language(self) -> str:
+        if self.llm.language != "English" and self.cfg.indic_model:
+            return self.cfg.indic_model
+        return self.cfg.model
+
+    def _apply_model_for_language_bg(self):
+        """Thread-safe variant: only changes the client model (label updates on next submit)."""
+        self.llm.model = self._model_for_language()
+
+    def _apply_model_for_language(self):
+        want = self._model_for_language()
+        if self.llm.model != want:
+            self.llm.model = want
+            self.model_label.configure(text=f"⚡ {want}")
+
+    def use_model(self, action: "UseModel"):
+        """'use model X' (all languages) or 'use model X for indian languages'."""
+        if action.scope == "indic":
+            self.cfg.indic_model = action.name
+            save_setting("indic_model", action.name)
+            where = "for Indian-language answers"
+        else:
+            self.cfg.model = action.name
+            save_setting("model", action.name)
+            where = "for all answers"
+        self.entry.delete(0, "end")
+        self._apply_model_for_language()
+        self.set_status(f"Switching to {action.name} {where}…", CYAN)
+        threading.Thread(target=self._ensure_model, args=(action.name,), daemon=True).start()
+
+    def _ensure_model(self, name: str):
+        """Download the model if needed (with progress), then warm it up."""
+        probe = OllamaClient(self.cfg.ollama_url, name, self.cfg.assistant_name)
+        problem = probe.check()
+        if problem and "isn't downloaded" in problem:
+            prev = self.llm.model
+            self.llm.model = name
+            self._pull_target = name
+            self.events.put(("setup", "pull"))
+            self.events.put(("status", f"⬇ {name} isn't downloaded yet. Click the button to download it.", AMBER))
+            return
+        if problem:
+            self.events.put(("status", "⚠ " + problem, ERR))
+            return
+        saved = self.llm.model
+        self.llm.model = name
+        self._warm_up()
+        self.llm.model = saved
+        self.events.put(("status", f"✔ Now using {name}.", GREEN))
+
     def set_language(self, name: str):
         self.llm.language = self.cfg.response_language = name
         try:
@@ -405,6 +456,7 @@ class CommandBar:
             pass
         self.lang_chip.configure(text=self._lang_label())
         self.answer.configure(font=self._answer_font())
+        self._apply_model_for_language()
         native = LANGUAGE_BY_NAME[name][1]
         self.set_status(f"✔ I'll answer in {native} from now on.", GREEN)
         self.entry.focus_set()
@@ -547,12 +599,15 @@ class CommandBar:
     def _show_setup(self, mode: str):
         self.setup_mode = mode
         label = {"install": "⬇  Install Ollama (free AI engine)",
-                 "pull": f"⬇  Download AI model ({self.cfg.model}, ~2.5 GB)",
+                 "pull": f"⬇  Download AI model ({self._pending_model()})",
                  "recheck": "↻  I've installed it, check again",
                  "fast": f"⚡  Switch to faster model ({FAST_MODEL}, ~1.4 GB)"}[mode]
         self.setup_btn.configure(text=label)
         self.setup.pack(fill="x", pady=(self._px(8), 0), after=self.status_row)
         self._layout()
+
+    def _pending_model(self) -> str:
+        return getattr(self, "_pull_target", None) or self.cfg.model
 
     def on_setup_click(self):
         if self._setup_busy:
@@ -577,11 +632,15 @@ class CommandBar:
     def _pull_model(self):
         try:
             self.events.put(("engine", "DOWNLOADING", AMBER))
-            for status, frac in self.llm.pull_stream():
+            target = self._pending_model()
+            puller = OllamaClient(self.cfg.ollama_url, target, self.cfg.assistant_name)
+            for status, frac in puller.pull_stream():
                 pct = f" {frac * 100:.0f}%" if frac >= 0 else ""
                 self.events.put(("status", f"Downloading model: {status}{pct}", MUTED))
                 self.events.put(("progress", frac))
+            self._pull_target = None
             self.events.put(("setup_hide",))
+            self._apply_model_for_language_bg()
             self._warm_up()
         except OllamaError as e:
             self.events.put(("status", f"⚠ {e}", ERR))
@@ -602,6 +661,10 @@ class CommandBar:
         if not text:
             return
         action = route(text, self.apps, self.cfg.connectors)
+        if isinstance(action, UseModel):
+            self.use_model(action)
+            return
+        self._apply_model_for_language()
         self._generation += 1
         gen = self._generation
         self.busy_since = time.monotonic()

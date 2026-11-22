@@ -81,11 +81,18 @@ class Connector:
 
 
 @dataclass(frozen=True)
+class UseModel:
+    """Switch the AI model. scope = 'all' or 'indic' (non-English answers only)."""
+    name: str
+    scope: str = "all"
+
+
+@dataclass(frozen=True)
 class AskAssistant:
     text: str
 
 
-Action = OpenApp | FindFiles | Summarize | OpenUrl | WebSearch | OpenSettings | System | Connector | AskAssistant
+Action = OpenApp | FindFiles | Summarize | OpenUrl | WebSearch | OpenSettings | System | Connector | UseModel | AskAssistant
 
 _OPEN = re.compile(r"^(open|launch|start|run)\s+(.+)$", re.IGNORECASE)
 _FIND = re.compile(r"^(find|search|locate)\s+(files?\s+|for\s+)?(.+)$", re.IGNORECASE)
@@ -94,6 +101,8 @@ _URL = re.compile(r"^(https?://\S+|www\.\S+|[\w-]+\.(com|in|org|net|io|ai|dev)(/
 _WEB = re.compile(r"^(google|web|bing)\s+(.+)$", re.IGNORECASE)
 _SETTINGS = re.compile(r"^(open\s+)?(settings?)\s*(.*)$", re.IGNORECASE)
 _LOCK = re.compile(r"^(lock|lock (pc|computer|screen|laptop))$", re.IGNORECASE)
+_USE_MODEL = re.compile(
+    r"^(use|switch to|set) model\s+([\w.:/-]+)(\s+for\s+(indian|indic|other)\s+languages?)?$", re.IGNORECASE)
 _QUIT = re.compile(r"^(quit|exit) (assistant|technoforesight)$", re.IGNORECASE)
 
 
@@ -131,6 +140,8 @@ def route(text: str, apps: list[App], connectors: dict[str, str] | None = None) 
 
     if _LOCK.match(text):
         return System("lock")
+    if m := _USE_MODEL.match(text):
+        return UseModel(m.group(2).lower(), "indic" if m.group(3) else "all")
     if _QUIT.match(text):
         return System("quit")
 

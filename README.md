@@ -9,7 +9,7 @@ Rakesh's work on AI and ML models.
 
 ## TechnoForesight Assistant at a glance
 
-- **Windows** ([`technoforesight/windows-assistant`](technoforesight/windows-assistant)): Alt+Space AI command bar, answers in 12 languages including Telugu and Hindi, with connectors and an installer. **Latest release:** [win-v0.3.1](https://github.com/raky452/ai/releases/latest) · **Download page:** [technoforesight.in/assistant](https://technoforesight.in/assistant)
+- **Windows** ([`technoforesight/windows-assistant`](technoforesight/windows-assistant)): Alt+Space AI command bar, answers in 12 languages including Telugu and Hindi, with connectors and an installer. **Latest release:** [win-v0.3.2](https://github.com/raky452/ai/releases/latest) · **Download page:** [technoforesight.in/assistant](https://technoforesight.in/assistant)
 - **Linux** ([`technoforesight/linux-assistant`](technoforesight/linux-assistant)): GTK 4 command bar on Ollama.
 - **Android** ([`technoforesight/android-launcher`](technoforesight/android-launcher)): home-screen launcher skeleton with an on-device model.
 - **Launch ad** ([`technoforesight/ad`](technoforesight/ad)): motion-graphics renderer for the Telugu and English ads ([Telugu](https://youtu.be/6oqI3PJZu7c), [English](https://youtu.be/US3ozZIHie0)).

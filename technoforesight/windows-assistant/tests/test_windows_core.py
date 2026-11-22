@@ -248,3 +248,10 @@ def test_connectors_routing_and_saving(tmp_path):
     assert loaded.model == "qwen3:1.7b"
     assert loaded.connectors["amz"] == "https://example.com/s?q={q}"
     assert "store" not in loaded.connectors and "yt" in loaded.connectors
+
+
+def test_use_model_command():
+    from tf_assistant.router import UseModel
+    assert route("use model gemma4:e4b for indian languages", APPS) == UseModel("gemma4:e4b", "indic")
+    assert route("use model qwen3:8b", APPS) == UseModel("qwen3:8b", "all")
+    assert route("switch to model gemma4:e2b for other languages", APPS) == UseModel("gemma4:e2b", "indic")

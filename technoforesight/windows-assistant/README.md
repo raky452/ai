@@ -1,6 +1,6 @@
 # TechnoForesight Assistant for Windows
 
-**Latest release: v0.3.1** · [Download](https://technoforesight.in/assistant) · [Releases](https://github.com/raky452/ai/releases) · Ad: [Telugu](https://youtu.be/6oqI3PJZu7c) / [English](https://youtu.be/US3ozZIHie0)
+**Latest release: v0.3.2** · [Download](https://technoforesight.in/assistant) · [Releases](https://github.com/raky452/ai/releases) · Ad: [Telugu](https://youtu.be/6oqI3PJZu7c) / [English](https://youtu.be/US3ozZIHie0)
 
 An **offline AI command bar** for Windows 10/11. Press **Alt+Space** from anywhere and type:
 
@@ -14,6 +14,7 @@ An **offline AI command bar** for Windows 10/11. Press **Alt+Space** from anywhe
 | `yt telugu songs` · `maps hyderabad` · `gmail` | **Connectors**: one word opens a website or tool (`connectors` lists them) |
 | `add connector store https://your-site.com` | Adds your own connector (use `{q}` for search links); `remove connector store` |
 | 🌐 menu | AI answers in English, Telugu, Hindi, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Odia or Urdu |
+| `use model gemma4:e4b for indian languages` · `use model qwen3:8b` | Switches the AI model (downloads it with a progress bar). The first form applies only to non-English answers |
 | `technoforesight.in` · `google ipl score` | Opens a website / searches the web |
 | anything else | Answered by an AI model running **on your PC**. Nothing is uploaded |
 
@@ -48,6 +49,7 @@ hotkey = "ctrl+space"        # default alt+space
 model = "qwen3:8b"           # any model from ollama.com/library
 search_roots = ["~/Desktop", "~/Documents", "D:/Work"]
 response_language = "Telugu"
+indic_model = "gemma4:e4b"   # used only for non-English answers
 
 [connectors]
 store = "https://technoforesight.in"
@@ -96,6 +98,7 @@ tests/        router, apps, files, hotkey, languages, connectors, Ollama client,
 
 | Version | Changes |
 |---|---|
+| 0.3.2 | `use model …` command; optional separate model for Indian-language answers (`indic_model`) |
 | 0.3.1 | Qwen-recommended sampling and repetition penalties (no more looping Telugu answers) |
 | 0.3.0 | Connectors: one word opens your sites; `add/remove connector`; Connectors chip |
 | 0.2.0 | 12 response languages; new neon UI; answer card that fits its content |

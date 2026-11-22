@@ -4,7 +4,7 @@ One brand, three platforms. Each runs open-source AI models **on the user's own 
 
 | Folder | Platform | Stack | Status |
 |---|---|---|---|
-| [`windows-assistant/`](windows-assistant/) | Windows 10/11 | Python, tkinter, Ollama (`qwen3:4b-instruct`), Inno Setup | **v0.3.1 released**, 21 tests, built by GitHub Actions. [Download](https://technoforesight.in/assistant) |
+| [`windows-assistant/`](windows-assistant/) | Windows 10/11 | Python, tkinter, Ollama (`qwen3:4b-instruct`), Inno Setup | **v0.3.2 released**, 22 tests, built by GitHub Actions. [Download](https://technoforesight.in/assistant) |
 | [`linux-assistant/`](linux-assistant/) | Ubuntu, Debian, Mint, Fedora | Python, GTK 4, Ollama (`qwen3:4b-instruct`) | v0.1, 15 tests |
 | [`android-launcher/`](android-launcher/) | Android phones | Kotlin, Jetpack Compose, MediaPipe LLM Inference (Gemma) | Starter skeleton, not yet compiled |
 | [`ad/`](ad/) | Launch ad (video) | Python (PIL + numpy) motion graphics, ffmpeg | Telugu and English ads live on YouTube and Instagram |

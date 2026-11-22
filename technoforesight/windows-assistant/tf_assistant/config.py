@@ -38,6 +38,9 @@ class Config:
     hotkey: str = "alt+space"
     # Language the AI answers in (see llm.LANGUAGES): English, Telugu, Hindi, Tamil, ...
     response_language: str = "English"
+    # Optional model used when the response language isn't English (e.g. "gemma4:e4b", which handles
+    # Indian scripts better than small Qwen models). Empty = use `model` for every language.
+    indic_model: str = ""
     assistant_name: str = "TechnoForesight Assistant"
     # Connectors: one word opens a website or tool. "{q}" is replaced by the rest of what you type.
     connectors: dict = field(default_factory=lambda: dict(DEFAULT_CONNECTORS))
