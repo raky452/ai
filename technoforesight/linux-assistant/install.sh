@@ -4,7 +4,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODEL="${TF_MODEL:-qwen3:4b}"
+MODEL="${TF_MODEL:-qwen3:4b-instruct}"
 
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 

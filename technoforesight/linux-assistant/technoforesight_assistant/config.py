@@ -24,8 +24,8 @@ class Config:
     # Local Ollama server that runs the model. Nothing is sent to the internet.
     ollama_url: str = "http://127.0.0.1:11434"
     # Any model pulled into Ollama. Apache-2.0 models are safest for commercial branding.
-    # Small laptops (8 GB RAM): "qwen3:4b".  16 GB+: "qwen3:8b".
-    model: str = "qwen3:4b"
+    # Small laptops (8 GB RAM): "qwen3:4b-instruct".  16 GB+: "qwen3:8b".
+    model: str = "qwen3:4b-instruct"  # non-thinking variant; plain qwen3:4b is thinking-only
     # How much of a document to feed the model when summarising.
     max_document_chars: int = 12_000
     # Where "find files ..." looks.

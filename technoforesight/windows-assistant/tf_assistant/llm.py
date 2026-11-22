@@ -15,11 +15,29 @@ SYSTEM_PROMPT = (
 )
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_CLOSE = "</think>"
+# Yielded by the stream when text already shown turns out to be the model's hidden reasoning
+# (thinking-only models emit reasoning, then "</think>", then the answer). The UI clears its answer.
+RESET = "\x00RESET\x00"
 
 
 def strip_thinking(text: str) -> str:
     """Some models (e.g. Qwen3) emit hidden reasoning in <think> tags; users shouldn't see it."""
-    return _THINK_RE.sub("", text)
+    text = _THINK_RE.sub("", text)
+    if _CLOSE in text:  # reasoning with no opening tag
+        text = text.split(_CLOSE)[-1].lstrip()
+    return text
+
+
+def join_stream(pieces) -> str:
+    """Collects streamed pieces, honouring RESET markers."""
+    out: list[str] = []
+    for piece in pieces:
+        if piece == RESET:
+            out.clear()
+        else:
+            out.append(piece)
+    return "".join(out)
 
 
 class ThinkFilter:
@@ -29,34 +47,44 @@ class ThinkFilter:
         self._buffer = ""
         self._thinking = False
 
-    def feed(self, chunk: str) -> str:
+    def feed(self, chunk: str) -> list[str]:
+        """Returns the visible pieces for this chunk (may include RESET)."""
         self._buffer += chunk
-        out = []
+        out: list[str] = []
         while self._buffer:
             if self._thinking:
-                end = self._buffer.find("</think>")
+                end = self._buffer.find(_CLOSE)
                 if end == -1:
                     # keep a tail in case the closing tag is split across chunks
-                    self._buffer = self._buffer[-len("</think>"):]
+                    self._buffer = self._buffer[-len(_CLOSE):]
                     break
-                self._buffer = self._buffer[end + len("</think>"):].lstrip()
+                self._buffer = self._buffer[end + len(_CLOSE):].lstrip()
                 self._thinking = False
             else:
                 start = self._buffer.find("<think>")
+                close = self._buffer.find(_CLOSE)
+                if close != -1 and (start == -1 or close < start):
+                    # Everything so far was reasoning without an opening tag: throw it away
+                    out = [RESET]
+                    self._buffer = self._buffer[close + len(_CLOSE):].lstrip()
+                    continue
                 if start == -1:
-                    # don't emit a partial "<thi" that might become a tag
+                    # don't emit a partial "<thi" / "</thi" that might become a tag
                     safe = len(self._buffer)
-                    for i in range(1, len("<think>")):
-                        if self._buffer.endswith("<think>"[:i]):
-                            safe = len(self._buffer) - i
-                            break
-                    out.append(self._buffer[:safe])
+                    for tag in ("<think>", _CLOSE):
+                        for i in range(len(tag) - 1, 0, -1):
+                            if self._buffer.endswith(tag[:i]):
+                                safe = min(safe, len(self._buffer) - i)
+                                break
+                    if safe:
+                        out.append(self._buffer[:safe])
                     self._buffer = self._buffer[safe:]
                     break
-                out.append(self._buffer[:start])
+                if start:
+                    out.append(self._buffer[:start])
                 self._buffer = self._buffer[start + len("<think>"):]
                 self._thinking = True
-        return "".join(out)
+        return out
 
     def flush(self) -> str:
         rest, self._buffer = ("" if self._thinking else self._buffer), ""
@@ -156,8 +184,7 @@ class OllamaClient:
                 event = json.loads(line)
                 if "error" in event:
                     raise OllamaError(event["error"])
-                piece = flt.feed(event.get("message", {}).get("content", ""))
-                if piece:
+                for piece in flt.feed(event.get("message", {}).get("content", "")):
                     yield piece
                 if event.get("done"):
                     break
@@ -166,7 +193,7 @@ class OllamaClient:
             yield tail
 
     def chat(self, user_text: str, history: list[dict] | None = None) -> str:
-        return "".join(self.chat_stream(user_text, history)).strip()
+        return join_stream(self.chat_stream(user_text, history)).strip()
 
     def speed_test(self) -> float:
         """Loads the model and generates a few words. Returns tokens per second (0 if unknown).

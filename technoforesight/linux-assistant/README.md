@@ -18,7 +18,7 @@ GTK 4 window (ui.py) ──► router.py ──► actions.py ──┬─► ap
                                                      └─► llm.py    (local Ollama server → model)
 ```
 
-- **AI engine:** [Ollama](https://ollama.com) runs the model locally. The default is `qwen3:4b` (Apache 2.0, OK for commercial branding).
+- **AI engine:** [Ollama](https://ollama.com) runs the model locally. The default is `qwen3:4b-instruct` (Apache 2.0, OK for commercial branding).
 - **No pip dependencies at runtime.** GTK comes from the OS, and the Ollama client uses only the Python standard library.
 
 ## Install (Ubuntu / Debian / Mint)
@@ -54,7 +54,7 @@ assistant_name = "TechnoForesight Assistant"
 
 | Laptop RAM | Suggested model |
 |---|---|
-| 8 GB | `qwen3:4b` |
+| 8 GB | `qwen3:4b-instruct` or `qwen3:1.7b` |
 | 16 GB | `qwen3:8b` |
 | GPU / 32 GB | `qwen3:14b` or larger |
 

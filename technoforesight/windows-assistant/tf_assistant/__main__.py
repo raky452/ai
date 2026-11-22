@@ -53,9 +53,8 @@ def main(argv: list[str] | None = None) -> int:
             for p in res.files:
                 print("  ", p)
             if res.stream:
-                for piece in res.stream:
-                    print(piece, end="", flush=True)
-                print()
+                from .llm import join_stream
+                print(join_stream(res.stream))
         except (OllamaError, OSError, RuntimeError) as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1

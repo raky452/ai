@@ -19,7 +19,7 @@ An **offline AI command bar** for Windows 10/11. Press **Alt+Space** from anywhe
 3. On first launch, click **Install Ollama**. That's the free engine that runs the AI. After installing it, click **Download AI model** (about 2.5 GB, one time).
 4. Press **Alt+Space** and start typing.
 
-**PC requirements:** Windows 10/11, 64-bit. 8 GB RAM works with the default `qwen3:4b` model; 16 GB+ can use `qwen3:8b`.
+**PC requirements:** Windows 10/11, 64-bit. 8 GB RAM works with the default `qwen3:4b-instruct` model (slower laptops: the app offers `qwen3:1.7b`); 16 GB+ can use `qwen3:8b`.
 
 ## Settings
 

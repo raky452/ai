@@ -123,8 +123,21 @@ def test_read_pdf(tmp_path):
 # ---------- streaming filter ----------
 def test_think_filter():
     f = ThinkFilter()
-    out = "".join(f.feed(c) for c in ["<thi", "nk>x</th", "ink>\nHi ", "there"]) + f.flush()
+    out = "".join("".join(f.feed(c)) for c in ["<thi", "nk>x</th", "ink>\nHi ", "there"]) + f.flush()
     assert out == "Hi there"
+
+
+def test_thinking_without_opening_tag():
+    """Thinking-only models (Ollama's plain qwen3:4b) send reasoning, '</think>', then the answer."""
+    from tf_assistant.llm import RESET, join_stream, strip_thinking
+    f = ThinkFilter()
+    pieces = []
+    for c in ["Okay, the user said hi. Let me th", "ink about it.\n</th", "ink>\n\nHello! How can I help?"]:
+        pieces += f.feed(c)
+    pieces.append(f.flush())
+    assert RESET in pieces
+    assert join_stream(pieces) == "Hello! How can I help?"
+    assert strip_thinking("reasoning...\n</think>\n\nHi!") == "Hi!"
 
 
 # ---------- Ollama client ----------

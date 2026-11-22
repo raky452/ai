@@ -19,8 +19,9 @@ CONFIG_PATH = APP_DIR / "config.toml"
 class Config:
     # Local Ollama server that runs the model. Nothing is sent to the internet.
     ollama_url: str = "http://127.0.0.1:11434"
-    # Apache-2.0 model, OK for commercial branding. 8 GB RAM: qwen3:4b; 16 GB+: qwen3:8b
-    model: str = "qwen3:4b"
+    # Apache-2.0, OK for commercial branding. Must be a NON-thinking model: Ollama's plain
+    # "qwen3:4b" tag is the thinking-only variant, which spends minutes reasoning on a laptop CPU.
+    model: str = "qwen3:4b-instruct"
     max_document_chars: int = 12_000
     # Where "find files ..." looks
     search_roots: tuple[str, ...] = ("~/Desktop", "~/Documents", "~/Downloads", "~/OneDrive")

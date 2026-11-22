@@ -15,7 +15,7 @@ from tkinter import ttk
 from . import APP_NAME, WEBSITE, actions, files
 from .apps import App, launch, load_apps
 from .config import DEFAULT_MODEL, FAST_MODEL, SLOW_TOKENS_PER_SEC, Config, save_setting, user_set
-from .llm import OllamaClient, OllamaError
+from .llm import RESET, OllamaClient, OllamaError
 from .router import route
 from .winsys import SingleInstance, start_hotkey_listener
 
@@ -183,7 +183,10 @@ class CommandBar:
                     self.streaming = False
                     self.foot_hint.configure(text="Esc to hide")
                 elif kind == "answer" and ev[2] == self._generation:
-                    self._answer_append(ev[1])
+                    if ev[1] == RESET:
+                        self._answer_clear()
+                    else:
+                        self._answer_append(ev[1])
                 elif kind == "files":
                     self.show_results([(str(p).replace(str(Path.home()), "~"), p) for p in ev[1]])
                 elif kind == "hide":
@@ -387,6 +390,11 @@ class CommandBar:
         if self.status.cget("text").startswith("Thinking…"):
             self.set_status("")
         self._resize()
+
+    def _answer_clear(self):
+        self.answer.configure(state="normal")
+        self.answer.delete("1.0", "end")
+        self.answer.configure(state="disabled")
 
     def _answer_append(self, piece: str):
         self.answer.configure(state="normal")
