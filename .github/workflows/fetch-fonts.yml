@@ -1,0 +1,30 @@
+name: Fetch Noto fonts for ad rendering
+# Copies open-licence (SIL OFL) Noto fonts for Indian scripts to the 'ad-assets' branch,
+# so the ad-rendering scripts can draw Telugu, Hindi, Tamil and other scripts.
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fonts:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-noto-ui-core > /dev/null
+      - name: Collect fonts
+        run: |
+          mkdir -p out/fonts
+          for f in NotoSansTelugu NotoSansDevanagari NotoSansTamil NotoSansKannada NotoSansMalayalam \
+                   NotoSansBengali NotoSansGujarati NotoSansGurmukhi NotoSansOriya NotoNaskhArabic; do
+            find /usr/share/fonts -name "${f}-Regular.ttf" -exec cp {} out/fonts/ \; 
+            find /usr/share/fonts -name "${f}-Bold.ttf" -exec cp {} out/fonts/ \;
+          done
+          cp /usr/share/doc/fonts-noto-core/copyright out/fonts/LICENSE-noto.txt || true
+          ls -la out/fonts
+      - name: Push to ad-assets branch
+        run: |
+          cd out
+          git init -q -b ad-assets
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A && git commit -q -m "Noto fonts (SIL OFL) for ad rendering"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ad-assets
