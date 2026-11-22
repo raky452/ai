@@ -6,6 +6,11 @@ on:
     paths: ['technoforesight/windows-assistant/**', '.github/workflows/windows-assistant.yml']
     tags: ['win-v*']
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a GitHub Release (tag win-v<version>)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,12 +35,14 @@ jobs:
           path: |
             technoforesight/windows-assistant/dist/*.exe
             technoforesight/windows-assistant/dist/*.zip
-      - name: Publish GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/win-v')
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/win-v') || inputs.release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $version = (python -c "import tf_assistant; print(tf_assistant.__version__)").Trim()
+          $tag = "win-v$version"
           $files = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName }
-          gh release create "${{ github.ref_name }}" $files --repo "${{ github.repository }}" `
-            --title "TechnoForesight Assistant for Windows ${{ github.ref_name }}" `
+          gh release create $tag $files --repo "${{ github.repository }}" --target "${{ github.sha }}" --latest `
+            --title "TechnoForesight Assistant for Windows v$version" `
             --notes "Offline AI command bar for Windows. Download the Setup .exe, run it, then press Alt+Space. Needs Ollama (free) for the AI: https://ollama.com/download/windows. Full guide: https://technoforesight.in/assistant"
