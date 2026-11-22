@@ -184,7 +184,10 @@ class OllamaClient:
         payload = {
             "model": self.model, "messages": messages, "stream": True,
             # Short, focused answers; a hard cap stops runaway generation on slow PCs
-            "options": {"num_predict": self.max_tokens},
+            # Qwen's recommended sampling for its instruct models; presence/repeat penalties stop the
+            # looping repetition small quantised models fall into, especially in Indian languages.
+            "options": {"num_predict": self.max_tokens, "temperature": 0.7, "top_p": 0.8, "top_k": 20,
+                        "repeat_penalty": 1.1, "presence_penalty": 1.2, "repeat_last_n": 256},
             "keep_alive": "30m",  # stay loaded so the next question starts fast
         }
         if think is not None:

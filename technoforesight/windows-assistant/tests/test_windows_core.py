@@ -183,6 +183,7 @@ def test_ollama(server):
     # thinking is switched off and answers are capped so slow PCs never stall silently
     assert _Fake.last_body["think"] is False
     assert _Fake.last_body["options"]["num_predict"] == 700
+    assert _Fake.last_body["options"]["presence_penalty"] > 0   # anti-repetition for Indian languages
     assert c.speed_test() == pytest.approx(5.0)
     assert list(c.pull_stream())[1] == ("downloading", 0.5)
     assert "ollama pull" in OllamaClient(server, "qwen3:8b").check()
