@@ -1,0 +1,33 @@
+name: Fetch media for ad rendering
+# Downloads generated voice-over / music files into the 'ad-assets' branch.
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Space-separated name=url pairs'
+        required: true
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ad-assets
+      - name: Download
+        env:
+          FILES: ${{ inputs.files }}
+        run: |
+          mkdir -p media
+          for pair in $FILES; do
+            name="${pair%%=*}"; url="${pair#*=}"
+            case "$url" in https://assets.vidiq.com/*) ;; *) echo "skip $url"; continue;; esac
+            curl -fsSL "$url" -o "media/$name"
+          done
+          ls -la media
+      - name: Commit
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add media && git commit -q -m "Add generated ad media" && git push
