@@ -5,6 +5,7 @@ One brand, two platforms. Both run open-source AI models **on the user's own dev
 | Folder | Platform | Stack | Status |
 |---|---|---|---|
 | [`android-launcher/`](android-launcher/) | Android phones | Kotlin, Jetpack Compose, MediaPipe LLM Inference (Gemma) | Starter skeleton, not yet compiled |
+| [`windows-assistant/`](windows-assistant/) | Windows 10/11 laptops | Python, tkinter, Ollama (Qwen3), Inno Setup installer | v0.1, built by GitHub Actions |
 | [`linux-assistant/`](linux-assistant/) | Linux laptops (Ubuntu, Debian, Mint, Fedora) | Python, GTK 4, Ollama (Qwen3) | Working v0.1, 15 tests passing |
 
 ## Shared idea

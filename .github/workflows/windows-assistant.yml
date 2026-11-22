@@ -1,0 +1,41 @@
+name: Build Windows Assistant
+
+on:
+  push:
+    branches: [main, technoforesight-windows]
+    paths: ['technoforesight/windows-assistant/**', '.github/workflows/windows-assistant.yml']
+    tags: ['win-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: technoforesight/windows-assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build app and installer
+        run: ./build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechnoForesightAssistant-windows
+          path: |
+            technoforesight/windows-assistant/dist/*.exe
+            technoforesight/windows-assistant/dist/*.zip
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/win-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName }
+          gh release create "${{ github.ref_name }}" $files --repo "${{ github.repository }}" `
+            --title "TechnoForesight Assistant for Windows ${{ github.ref_name }}" `
+            --notes "Offline AI command bar for Windows. Download the Setup .exe, run it, then press Alt+Space. Needs Ollama (free) for the AI: https://ollama.com/download/windows. Full guide: https://technoforesight.in/assistant"
