@@ -1,12 +1,17 @@
-"""Command-bar window (tkinter: ships with Python, no extra dependencies)."""
+"""Command-bar window: borderless, rounded "glass" panel with a neon gradient edge.
+
+Built on tkinter (ships with Python, no extra dependencies). All background work posts to
+`self.events`; only the UI thread touches widgets.
+"""
 
 from __future__ import annotations
 
 import ctypes
+import math
 import queue
 import sys
-import time
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
@@ -15,13 +20,32 @@ from tkinter import ttk
 from . import APP_NAME, WEBSITE, actions, files
 from .apps import App, launch, load_apps
 from .config import DEFAULT_MODEL, FAST_MODEL, SLOW_TOKENS_PER_SEC, Config, save_setting, user_set
-from .llm import RESET, OllamaClient, OllamaError
+from .llm import LANGUAGE_BY_NAME, LANGUAGES, RESET, OllamaClient, OllamaError
 from .router import route
 from .winsys import SingleInstance, start_hotkey_listener
 
-BG, PANEL, FG, MUTED, ACCENT, ERR = "#0f172a", "#1e293b", "#f1f5f9", "#94a3b8", "#38bdf8", "#fca5a5"
-FONT = "Segoe UI"
-WIDTH = 760
+# ---------- design tokens ----------
+KEY = "#010203"            # transparent colour key (outside the rounded panel)
+BG = "#0a0f1e"             # panel
+SURFACE = "#111a2e"        # input, cards
+SURFACE_HI = "#16223b"     # hover
+LINE = "#1e2c48"
+FG = "#e8eefc"
+MUTED = "#7f8db0"
+DIM = "#4b587a"
+CYAN, VIOLET, PINK = "#22d3ee", "#8b5cf6", "#ec4899"
+GREEN, AMBER, ERR = "#34d399", "#fbbf24", "#fca5a5"
+FONT, MONO, INDIC = "Segoe UI", "Consolas", "Nirmala UI"
+WIDTH, RADIUS, PAD = 780, 22, 14
+
+CHIPS = [
+    ("✦  Ask AI", ""),
+    ("▶  Open app", "open "),
+    ("⌕  Find files", "find files "),
+    ("▤  Summarise", "summarise "),
+    ("⚙  Settings", "settings "),
+    ("⏻  Lock PC", "lock pc"),
+]
 
 
 def _resource(name: str) -> Path:
@@ -29,115 +53,365 @@ def _resource(name: str) -> Path:
     return base / "assets" / name
 
 
+def _mix(a: str, b: str, t: float) -> str:
+    """Blend two #rrggbb colours."""
+    ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+    cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ca, cb))
+
+
+def _gradient(t: float) -> str:
+    """Cyan → violet → pink."""
+    return _mix(CYAN, VIOLET, t * 2) if t < 0.5 else _mix(VIOLET, PINK, (t - 0.5) * 2)
+
+
+def _round_rect(cv: tk.Canvas, x1, y1, x2, y2, r, **kw):
+    pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+           x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+    return cv.create_polygon(pts, smooth=True, **kw)
+
+
+class Chip(tk.Label):
+    """Flat pill button with hover state."""
+
+    def __init__(self, master, text, command, *, fg=MUTED, bg=SURFACE, hover=SURFACE_HI, font=(FONT, 9), padx=10, pady=4):
+        super().__init__(master, text=text, fg=fg, bg=bg, font=font, padx=padx, pady=pady, cursor="hand2")
+        self._bg, self._hover, self._fg = bg, hover, fg
+        self.bind("<Enter>", lambda e: self.configure(bg=self._hover, fg=FG))
+        self.bind("<Leave>", lambda e: self.configure(bg=self._bg, fg=self._fg))
+        self.bind("<Button-1>", lambda e: command())
+
+
+class Pulse(tk.Canvas):
+    """Animated 'thinking' indicator: three pulsing dots and a scanning gradient bar."""
+
+    def __init__(self, master, scale: float):
+        self.s = scale
+        super().__init__(master, width=int(170 * scale), height=int(14 * scale), bg=BG, highlightthickness=0)
+        self.running = False
+        self.t0 = 0.0
+
+    def start(self):
+        if not self.running:
+            self.running, self.t0 = True, time.monotonic()
+            self._frame()
+
+    def stop(self):
+        self.running = False
+        self.delete("all")
+
+    def _frame(self):
+        if not self.running:
+            return
+        self.delete("all")
+        t = time.monotonic() - self.t0
+        s = self.s
+        for i in range(3):
+            k = (math.sin(t * 6 - i * 0.9) + 1) / 2
+            r = (2.5 + 2 * k) * s
+            cx, cy = (8 + i * 13) * s, 7 * s
+            self.create_oval(cx - r, cy - r, cx + r, cy + r, fill=_mix(DIM, _gradient(i / 2), k), outline="")
+        x0, w = 50 * s, 115 * s
+        self.create_rectangle(x0, 6 * s, x0 + w, 8 * s, fill=LINE, outline="")
+        head = (t * 0.8) % 1.0
+        seg = 30 * s
+        steps = 12
+        for j in range(steps):
+            frac = head - j / steps * 0.25
+            if 0 <= frac <= 1:
+                x = x0 + frac * (w - seg / steps)
+                self.create_rectangle(x, 5.5 * s, x + seg / steps + 1, 8.5 * s,
+                                      fill=_mix(BG, _gradient(frac), 1 - j / steps), outline="")
+        self.after(33, self._frame)
+
+
 class CommandBar:
     def __init__(self, cfg: Config, instance: SingleInstance):
         self.cfg = cfg
-        self.llm = OllamaClient(cfg.ollama_url, cfg.model, cfg.assistant_name)
+        self.llm = OllamaClient(cfg.ollama_url, cfg.model, cfg.assistant_name, language=cfg.response_language)
         self.apps: list[App] = []
         self.results: list[tuple[str, object]] = []
         self.events: queue.Queue = queue.Queue()
         self._generation = 0
+        self.busy_since: float | None = None
+        self.streaming = False
+        self.speed: float | None = None
+        self.answer_text = ""
 
         self.root = tk.Tk()
         self.root.title(APP_NAME)
-        self.root.configure(bg=BG)
+        self.root.configure(bg=KEY)
+        self.root.overrideredirect(True)          # borderless: we draw our own rounded panel
         self.root.attributes("-topmost", True)
-        self.root.resizable(False, False)
+        try:
+            self.root.attributes("-transparentcolor", KEY)
+        except tk.TclError:
+            pass
         try:
             self.root.iconbitmap(default=str(_resource("icon.ico")))
         except tk.TclError:
             pass
-        self.root.protocol("WM_DELETE_WINDOW", self.hide)
-        # Scale pixel sizes for high-DPI screens (fonts already scale; widths must too)
         self.scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
         self.width = int(WIDTH * self.scale)
-        self.busy_since: float | None = None   # set while waiting for the AI's first word
-        self.streaming = False
+        self._style()
         self._build()
-        self._place()
 
-        # Background work never touches tkinter directly; it posts to self.events.
         threading.Thread(target=self._load_apps, daemon=True).start()
         threading.Thread(target=self._check_engine, daemon=True).start()
         self.hotkey_ok = start_hotkey_listener(cfg.hotkey, lambda: self.events.put(("show",))) is not None
         instance.listen(lambda: self.events.put(("show",)))
-        self.root.after(80, self._pump)
-        hint = (f"Tip: press {cfg.hotkey.title()} anytime to open me." if self.hotkey_ok
-                else f"Couldn't register {cfg.hotkey}; another app uses it. Change 'hotkey' in config.toml.")
-        self.set_status(hint)
+        self.root.after(60, self._pump)
+        self.set_status(f"Press {self._hk()} anywhere to summon me." if self.hotkey_ok
+                        else f"{self._hk()} is used by another app. Change 'hotkey' in config.toml.", MUTED)
         self.show()
 
-    # ---------- layout ----------
+    # ================= construction =================
+    def _px(self, v: float) -> int:
+        return int(v * self.scale)
+
+    def _hk(self) -> str:
+        return "+".join(p.strip().title() for p in self.cfg.hotkey.split("+"))
+
+    def _style(self):
+        st = ttk.Style(self.root)
+        try:
+            st.theme_use("clam")
+        except tk.TclError:
+            pass
+        st.configure("Neon.Horizontal.TProgressbar", troughcolor=SURFACE, background=CYAN,
+                     bordercolor=SURFACE, lightcolor=CYAN, darkcolor=VIOLET, thickness=self._px(6))
+
     def _build(self):
-        outer = tk.Frame(self.root, bg=BG, padx=18, pady=16)
-        outer.pack(fill="both", expand=True)
+        self.canvas = tk.Canvas(self.root, bg=KEY, highlightthickness=0, bd=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.body = tk.Frame(self.canvas, bg=BG)
+        self.body_win = self.canvas.create_window(self._px(PAD + 4), self._px(PAD + 8), window=self.body,
+                                                  anchor="nw", width=self.width - 2 * self._px(PAD + 4))
+        self.body.bind("<Configure>", lambda e: self._layout())
 
-        head = tk.Frame(outer, bg=BG)
+        self._build_header()
+        self._build_input()
+        self._build_chips()
+        self._build_status()
+        self._build_setup()
+        self._build_results()
+        self._build_answer()
+        self._build_footer()
+
+        self.root.bind("<Escape>", self.on_escape)
+
+    def _build_header(self):
+        head = tk.Frame(self.body, bg=BG)
         head.pack(fill="x")
-        tk.Label(head, text="✦ TechnoForesight", fg=ACCENT, bg=BG, font=(FONT, 11, "bold")).pack(side="left")
-        tk.Label(head, text="offline AI · nothing leaves your PC", fg=MUTED, bg=BG, font=(FONT, 9)).pack(side="left", padx=10)
+        logo = tk.Canvas(head, width=self._px(26), height=self._px(26), bg=BG, highlightthickness=0)
+        logo.pack(side="left")
+        s = self._px(26)
+        for i in range(12, 0, -1):  # glowing gradient diamond
+            k = i / 12
+            r = s / 2 * k
+            logo.create_polygon(s / 2, s / 2 - r, s / 2 + r, s / 2, s / 2, s / 2 + r, s / 2 - r, s / 2,
+                                fill=_gradient(1 - k), outline="")
+        logo.create_text(s / 2, s / 2, text="T", fill=BG, font=(FONT, 9, "bold"))
+        tk.Label(head, text="TechnoForesight", fg=FG, bg=BG, font=(FONT, 12, "bold")).pack(side="left", padx=(8, 4))
+        badge = tk.Label(head, text=" AI ", fg=BG, bg=CYAN, font=(MONO, 8, "bold"))
+        badge.pack(side="left", pady=2)
 
-        self.entry = tk.Entry(outer, font=(FONT, 17), bg=PANEL, fg=FG, insertbackground=FG,
-                              relief="flat", highlightthickness=2, highlightcolor=ACCENT, highlightbackground=PANEL)
-        self.entry.pack(fill="x", pady=(10, 6), ipady=10)
+        close = Chip(head, "✕", self.hide, fg=MUTED, bg=BG, hover=SURFACE, font=(FONT, 10), padx=8, pady=2)
+        close.pack(side="right")
+        self.lang_chip = Chip(head, self._lang_label(), self.open_language_menu, fg=FG, bg=SURFACE,
+                              hover=SURFACE_HI, font=(FONT, 9), padx=10, pady=3)
+        self.lang_chip.pack(side="right", padx=(6, 6))
+        status = tk.Frame(head, bg=SURFACE, padx=self._px(8), pady=self._px(2))
+        status.pack(side="right")
+        self.dot = tk.Canvas(status, width=self._px(10), height=self._px(10), bg=SURFACE, highlightthickness=0)
+        self.dot.pack(side="left", padx=(0, 6))
+        self.engine_label = tk.Label(status, text="CONNECTING", fg=MUTED, bg=SURFACE, font=(MONO, 8, "bold"))
+        self.engine_label.pack(side="left")
+        self._dot_color = AMBER
+        self._blink()
+
+        for w in (head, logo, badge, status, self.engine_label):  # drag the window by its header
+            w.bind("<ButtonPress-1>", self._drag_start)
+            w.bind("<B1-Motion>", self._drag_move)
+        tk.Frame(self.body, bg=BG, height=self._px(10)).pack(fill="x")
+
+    def _build_input(self):
+        self.input_frame = tk.Frame(self.body, bg=SURFACE, highlightthickness=self._px(2),
+                                    highlightbackground=LINE, highlightcolor=CYAN)
+        self.input_frame.pack(fill="x")
+        tk.Label(self.input_frame, text="❯", fg=CYAN, bg=SURFACE, font=(MONO, 18, "bold")).pack(side="left", padx=(12, 4))
+        self.entry = tk.Entry(self.input_frame, font=(FONT, 16), bg=SURFACE, fg=FG, insertbackground=CYAN,
+                              insertwidth=self._px(2), relief="flat", highlightthickness=0, bd=0)
+        self.entry.pack(side="left", fill="x", expand=True, ipady=self._px(11))
+        tk.Label(self.input_frame, text="⏎ enter", fg=DIM, bg=SURFACE, font=(MONO, 9)).pack(side="right", padx=12)
         self.entry.bind("<Return>", self.on_submit)
         self.entry.bind("<KeyRelease>", self.on_key_release)
         self.entry.bind("<Down>", self.focus_results)
-        self.root.bind("<Escape>", self.on_escape)
-
-        self.placeholder = "Open apps · find files · summarise a PDF · settings wifi · or ask anything"
+        self.entry.bind("<FocusIn>", lambda e: (self._clear_placeholder(), self.input_frame.configure(highlightbackground=CYAN)))
+        self.entry.bind("<FocusOut>", lambda e: self.input_frame.configure(highlightbackground=LINE))
+        self.placeholder = "Ask anything, or try: open chrome · find files invoice · settings wifi"
         self._show_placeholder()
-        self.entry.bind("<FocusIn>", lambda e: self._clear_placeholder())
 
-        self.status = tk.Label(outer, text="", fg=ACCENT, bg=BG, font=(FONT, 10), anchor="w", justify="left",
-                               wraplength=int((WIDTH - 40) * self.scale))
-        self.status.pack(fill="x")
+    def _build_chips(self):
+        row = tk.Frame(self.body, bg=BG)
+        row.pack(fill="x", pady=(self._px(10), 0))
+        for label, template in CHIPS:
+            Chip(row, label, lambda t=template: self._use_template(t)).pack(side="left", padx=(0, 6))
 
-        # Setup panel (shown only when Ollama or the model is missing)
-        self.setup = tk.Frame(outer, bg=BG)
-        self.setup_btn = tk.Button(self.setup, text="", font=(FONT, 10, "bold"), bg=ACCENT, fg=BG, relief="flat",
-                                   activebackground="#7dd3fc", padx=12, pady=6, command=self.on_setup_click)
+    def _build_status(self):
+        row = tk.Frame(self.body, bg=BG)
+        row.pack(fill="x", pady=(self._px(10), 0))
+        self.pulse = Pulse(row, self.scale)
+        self.pulse.pack(side="left")
+        self.pulse.pack_forget()
+        self.status = tk.Label(row, text="", fg=CYAN, bg=BG, font=(FONT, 10), anchor="w", justify="left",
+                               wraplength=self.width - self._px(80))
+        self.status.pack(side="left", fill="x", expand=True)
+        self.status_row = row
+
+    def _build_setup(self):
+        self.setup = tk.Frame(self.body, bg=BG)
+        self.setup_btn = tk.Label(self.setup, text="", fg=BG, bg=CYAN, font=(FONT, 10, "bold"),
+                                  padx=14, pady=7, cursor="hand2")
         self.setup_btn.pack(side="left")
-        self.progress = ttk.Progressbar(self.setup, length=380, mode="determinate", maximum=1.0)
+        self.setup_btn.bind("<Button-1>", lambda e: self.on_setup_click())
+        self.setup_btn.bind("<Enter>", lambda e: self.setup_btn.configure(bg="#67e8f9"))
+        self.setup_btn.bind("<Leave>", lambda e: self.setup_btn.configure(bg=CYAN))
+        self.progress = ttk.Progressbar(self.setup, length=self._px(360), mode="determinate", maximum=1.0,
+                                        style="Neon.Horizontal.TProgressbar")
+        self.setup_mode = ""
+        self._setup_busy = False
 
-        self.listbox = tk.Listbox(outer, font=(FONT, 11), bg=PANEL, fg=FG, selectbackground=ACCENT,
-                                  selectforeground=BG, relief="flat", highlightthickness=0, height=0,
-                                  activestyle="none")
+    def _build_results(self):
+        self.listbox = tk.Listbox(self.body, font=(FONT, 11), bg=SURFACE, fg=FG, selectbackground=VIOLET,
+                                  selectforeground="#ffffff", relief="flat", highlightthickness=0, height=0,
+                                  activestyle="none", bd=0)
         self.listbox.bind("<Return>", self.on_result_open)
         self.listbox.bind("<Double-Button-1>", self.on_result_open)
         self.listbox.bind("<Up>", self.on_list_up)
 
-        self.answer = tk.Text(outer, font=(FONT, 11), bg=PANEL, fg=FG, relief="flat", wrap="word",
-                              height=12, padx=12, pady=10, highlightthickness=0)
+    def _build_answer(self):
+        self.card = tk.Frame(self.body, bg=SURFACE, highlightthickness=1, highlightbackground=LINE)
+        bar = tk.Frame(self.card, bg=SURFACE)
+        bar.pack(fill="x", padx=12, pady=(8, 0))
+        tk.Label(bar, text="◆ AI RESPONSE", fg=CYAN, bg=SURFACE, font=(MONO, 8, "bold")).pack(side="left")
+        self.answer_lang = tk.Label(bar, text="", fg=MUTED, bg=SURFACE, font=(MONO, 8))
+        self.answer_lang.pack(side="left", padx=8)
+        Chip(bar, "⧉ Copy", self.copy_answer, bg=SURFACE, hover=SURFACE_HI, font=(FONT, 8), padx=8, pady=1).pack(side="right")
+        self.answer = tk.Text(self.card, font=self._answer_font(), bg=SURFACE, fg=FG, relief="flat", wrap="word",
+                              height=11, padx=14, pady=10, highlightthickness=0, bd=0, spacing2=3, spacing3=4,
+                              insertbackground=CYAN)
+        self.answer.pack(fill="both", expand=True)
         self.answer.configure(state="disabled")
 
-        foot = tk.Frame(outer, bg=BG)
-        foot.pack(fill="x", side="bottom", pady=(8, 0))
-        self.foot_hint = tk.Label(foot, text="Esc to hide", fg=MUTED, bg=BG, font=(FONT, 8))
+    def _build_footer(self):
+        foot = tk.Frame(self.body, bg=BG)
+        foot.pack(fill="x", side="bottom", pady=(self._px(12), 0))
+        self.foot_hint = tk.Label(foot, text=self._hint_text(), fg=DIM, bg=BG, font=(MONO, 8))
         self.foot_hint.pack(side="left")
-        link = tk.Label(foot, text="technoforesight.in", fg=MUTED, bg=BG, font=(FONT, 8, "underline"), cursor="hand2")
+        link = tk.Label(foot, text="technoforesight.in", fg=DIM, bg=BG, font=(MONO, 8, "underline"), cursor="hand2")
         link.pack(side="right")
         link.bind("<Button-1>", lambda e: webbrowser.open(WEBSITE))
+        self.model_label = tk.Label(foot, text=f"⚡ {self.llm.model}", fg=MUTED, bg=BG, font=(MONO, 8))
+        self.model_label.pack(side="right", padx=12)
 
-    def _place(self):
+    # ================= painting the rounded shell =================
+    def _layout(self):
+        if getattr(self, "_in_layout", False):
+            return
+        self._in_layout = True
+        try:
+            self._paint()
+        finally:
+            self._in_layout = False
+
+    def _paint(self):
         self.root.update_idletasks()
-        self._apply_geometry()
-
-    def _resize(self):
-        self.root.geometry("")  # let tk compute natural height
-        self.root.update_idletasks()
-        self._apply_geometry()
-
-    def _apply_geometry(self):
+        bh = self.body.winfo_reqheight()
+        p = self._px(PAD)
+        w, h = self.width, bh + 2 * p + self._px(20)
+        self.canvas.configure(width=w, height=h)
+        cv = self.canvas
+        cv.delete("shell")
+        r = self._px(RADIUS)
+        # soft outer glow
+        for i, k in enumerate((0.10, 0.18, 0.30)):
+            off = self._px(6 - i * 2)
+            _round_rect(cv, p - off, p - off, w - p + off, h - p + off, r + off,
+                        fill=_mix(KEY, VIOLET, k * 0.5) if i < 2 else _mix(BG, CYAN, k * 0.5), outline="", tags="shell")
+        _round_rect(cv, p, p, w - p, h - p, r, fill=BG, outline=_mix(LINE, CYAN, 0.35), width=1, tags="shell")
+        # neon gradient edge along the top
+        x1, x2, y = p + r, w - p - r, p + 1
+        n = 90
+        for i in range(n):
+            xa = x1 + (x2 - x1) * i / n
+            cv.create_line(xa, y, xa + (x2 - x1) / n + 1, y, fill=_gradient(i / (n - 1)), width=self._px(2), tags="shell")
+        cv.tag_lower("shell")
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w = min(self.width, sw - 40)
-        self.root.geometry(f"{w}x{self.root.winfo_reqheight()}+{max(0, (sw - w) // 2)}+{int(sh * 0.15)}")
+        if not getattr(self, "_moved", False):
+            self._x, self._y = max(0, (sw - w) // 2), int(sh * 0.14)
+        self.root.geometry(f"{w}x{h}+{self._x}+{self._y}")
 
-    # ---------- placeholder ----------
+    def _drag_start(self, e):
+        self._drag = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
+
+    def _drag_move(self, e):
+        dx, dy = self._drag
+        self._x, self._y, self._moved = e.x_root - dx, e.y_root - dy, True
+        self.root.geometry(f"+{self._x}+{self._y}")
+
+    def _blink(self):
+        self.dot.delete("all")
+        k = (math.sin(time.monotonic() * 3) + 1) / 2
+        s = self._px(10)
+        self.dot.create_oval(0, 0, s, s, fill=_mix(SURFACE, self._dot_color, 0.35 + 0.25 * k), outline="")
+        self.dot.create_oval(s * 0.25, s * 0.25, s * 0.75, s * 0.75, fill=self._dot_color, outline="")
+        self.root.after(80, self._blink)
+
+    def _set_engine(self, text: str, color: str):
+        self.engine_label.configure(text=text, fg=color)
+        self._dot_color = color
+
+    # ================= language =================
+    def _lang_label(self) -> str:
+        name, native, _ = LANGUAGE_BY_NAME.get(self.llm.language, LANGUAGES[0])
+        return f"🌐  {native if name == 'English' else native + ' · ' + name}  ▾"
+
+    def _answer_font(self):
+        return (FONT if self.llm.language in ("English",) else INDIC, 11)
+
+    def open_language_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=SURFACE, fg=FG, activebackground=VIOLET, activeforeground="#ffffff",
+                       font=(INDIC, 10), bd=0, relief="flat")
+        menu.add_command(label="Response language", state="disabled")
+        menu.add_separator()
+        for name, native, _ in LANGUAGES:
+            mark = "●  " if name == self.llm.language else "    "
+            menu.add_command(label=f"{mark}{native}   ({name})" if name != "English" else f"{mark}English",
+                             command=lambda n=name: self.set_language(n))
+        x, y = self.lang_chip.winfo_rootx(), self.lang_chip.winfo_rooty() + self.lang_chip.winfo_height()
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def set_language(self, name: str):
+        self.llm.language = self.cfg.response_language = name
+        try:
+            save_setting("response_language", name)
+        except OSError:
+            pass
+        self.lang_chip.configure(text=self._lang_label())
+        self.answer.configure(font=self._answer_font())
+        native = LANGUAGE_BY_NAME[name][1]
+        self.set_status(f"✔ I'll answer in {native} from now on.", GREEN)
+        self.entry.focus_set()
+
+    # ================= placeholder =================
     def _show_placeholder(self):
         if not self.entry.get():
             self.entry.insert(0, self.placeholder)
-            self.entry.configure(fg=MUTED)
+            self.entry.configure(fg=DIM)
             self._has_placeholder = True
 
     def _clear_placeholder(self):
@@ -149,9 +423,19 @@ class CommandBar:
     def text(self) -> str:
         return "" if getattr(self, "_has_placeholder", False) else self.entry.get().strip()
 
-    # ---------- show / hide ----------
+    def _use_template(self, template: str):
+        self._clear_placeholder()
+        self.entry.delete(0, "end")
+        self.entry.insert(0, template)
+        self.entry.focus_set()
+        self.entry.icursor("end")
+        if template.strip() == "lock pc":
+            self.set_status("Press Enter to lock your PC.", MUTED)
+
+    # ================= show / hide =================
     def show(self):
         self.root.deiconify()
+        self._layout()
         self.root.lift()
         self.root.attributes("-topmost", True)
         self.root.focus_force()
@@ -162,7 +446,7 @@ class CommandBar:
     def hide(self):
         self.root.withdraw()
 
-    # ---------- background → UI ----------
+    # ================= background → UI =================
     def _pump(self):
         try:
             while True:
@@ -171,22 +455,31 @@ class CommandBar:
                 if kind == "show":
                     self.show()
                 elif kind == "status":
-                    self.set_status(ev[1], ev[2] if len(ev) > 2 else ACCENT)
+                    self.set_status(ev[1], ev[2] if len(ev) > 2 else CYAN)
+                elif kind == "engine":
+                    self._set_engine(ev[1], ev[2])
+                elif kind == "speed":
+                    self.speed = ev[1]
+                    self.model_label.configure(text=f"⚡ {self.llm.model}" + (f" · {ev[1]:.1f} tok/s" if ev[1] else ""))
                 elif kind == "apps":
                     self.apps = ev[1]
                 elif kind == "answer_start" and ev[1] == self._generation:
                     self.busy_since = None
                     self.streaming = True
+                    self.pulse.stop()
+                    self.pulse.pack_forget()
                     self._answer_start()
-                elif kind == "done" and ev[1] == self._generation:
-                    self.busy_since = None
-                    self.streaming = False
-                    self.foot_hint.configure(text="Esc to hide")
                 elif kind == "answer" and ev[2] == self._generation:
                     if ev[1] == RESET:
                         self._answer_clear()
                     else:
                         self._answer_append(ev[1])
+                elif kind == "done" and ev[1] == self._generation:
+                    self.busy_since = None
+                    self.streaming = False
+                    self.pulse.stop()
+                    self.pulse.pack_forget()
+                    self.foot_hint.configure(text=self._hint_text())
                 elif kind == "files":
                     self.show_results([(str(p).replace(str(Path.home()), "~"), p) for p in ev[1]])
                 elif kind == "hide":
@@ -197,15 +490,18 @@ class CommandBar:
                 elif kind == "setup":
                     self._show_setup(ev[1])
                 elif kind == "setup_hide":
+                    self._setup_busy = False
+                    self.progress.pack_forget()
                     self.setup.pack_forget()
-                    self._resize()
+                    self._layout()
                 elif kind == "setup_enable":
-                    self.setup_btn.configure(state="normal")
+                    self._setup_busy = False
+                    self.setup_btn.configure(bg=CYAN)
                 elif kind == "progress":
                     self.progress["value"] = ev[1] if ev[1] >= 0 else 0
         except queue.Empty:
             pass
-        self.root.after(60, self._pump)
+        self.root.after(50, self._pump)
 
     def _load_apps(self):
         self.events.put(("apps", load_apps()))
@@ -216,15 +512,16 @@ class CommandBar:
             self._warm_up()
             return
         if "Can't reach" in problem:
+            self.events.put(("engine", "ENGINE OFF", ERR))
             self.events.put(("setup", "install"))
         else:
+            self.events.put(("engine", "NO MODEL", AMBER))
             self.events.put(("setup", "pull"))
         self.events.put(("status", "⚠ " + problem, ERR))
 
     def _warm_up(self):
-        """Loads the model and measures speed, so the first real question isn't a mystery wait,
-        and slow laptops get offered the faster model."""
-        self.events.put(("status", "Warming up the AI model (the first time can take up to a minute)…"))
+        self.events.put(("engine", "WARMING UP", AMBER))
+        self.events.put(("status", "Warming up the AI model (the first time can take up to a minute)…", MUTED))
         try:
             tps = self.llm.speed_test()
         except OllamaError as e:
@@ -232,52 +529,54 @@ class CommandBar:
             if "memory" in msg.lower():
                 msg += "  Close some apps (e.g. browser tabs) or switch to the smaller model."
                 self.events.put(("setup", "fast"))
+            self.events.put(("engine", "MODEL ERROR", ERR))
             self.events.put(("status", "⚠ AI model couldn't start: " + msg, ERR))
             return
-        speed = f" ({tps:.1f} words/sec on this PC)" if tps else ""
+        self.events.put(("engine", "LOCAL · OFFLINE", GREEN))
+        self.events.put(("speed", tps))
         if tps and tps < SLOW_TOKENS_PER_SEC and self.llm.model == DEFAULT_MODEL and not user_set("model"):
             self.events.put(("setup", "fast"))
-            self.events.put(("status", f"✔ Ready, but slow on this PC{speed}. A smaller model answers about twice as fast."))
+            self.events.put(("status", f"✔ Ready, but slow on this PC ({tps:.1f} tok/s). A smaller model answers about twice as fast.", AMBER))
         else:
-            self.events.put(("status", f"✔ AI ready{speed}. Ask me anything!"))
+            self.events.put(("status", "✔ AI ready. Ask me anything, it all stays on this PC.", GREEN))
 
-    # ---------- setup panel ----------
+    # ================= setup panel =================
     def _show_setup(self, mode: str):
         self.setup_mode = mode
-        label = {"install": "Install Ollama (free AI engine)", "pull": f"Download AI model ({self.cfg.model}, ~2.5 GB)",
-                 "recheck": "I've installed it, check again",
-                 "fast": f"Switch to faster model ({FAST_MODEL}, ~1.4 GB)"}[mode]
+        label = {"install": "⬇  Install Ollama (free AI engine)",
+                 "pull": f"⬇  Download AI model ({self.cfg.model}, ~2.5 GB)",
+                 "recheck": "↻  I've installed it, check again",
+                 "fast": f"⚡  Switch to faster model ({FAST_MODEL}, ~1.4 GB)"}[mode]
         self.setup_btn.configure(text=label)
-        self.setup.pack(fill="x", pady=(6, 4), before=self.status)
-        self._resize()
+        self.setup.pack(fill="x", pady=(self._px(8), 0), after=self.status_row)
+        self._layout()
 
     def on_setup_click(self):
+        if self._setup_busy:
+            return
         if self.setup_mode == "install":
             webbrowser.open("https://ollama.com/download/windows")
             self._show_setup("recheck")
         elif self.setup_mode == "recheck":
             self.setup.pack_forget()
-            self.set_status("Checking…")
-            threading.Thread(target=self._check_engine_then_ok, daemon=True).start()
+            self.set_status("Checking…", MUTED)
+            threading.Thread(target=self._check_engine, daemon=True).start()
         elif self.setup_mode in ("pull", "fast"):
             if self.setup_mode == "fast":
                 self.llm.model = self.cfg.model = FAST_MODEL
                 save_setting("model", FAST_MODEL)
-            self.setup_btn.configure(state="disabled")
+                self.model_label.configure(text=f"⚡ {FAST_MODEL}")
+            self._setup_busy = True
+            self.setup_btn.configure(bg=DIM)
             self.progress.pack(side="left", padx=12)
             threading.Thread(target=self._pull_model, daemon=True).start()
 
-    def _check_engine_then_ok(self):
-        if self.llm.check() is None:
-            self._warm_up()
-        else:
-            self._check_engine()
-
     def _pull_model(self):
         try:
+            self.events.put(("engine", "DOWNLOADING", AMBER))
             for status, frac in self.llm.pull_stream():
                 pct = f" {frac * 100:.0f}%" if frac >= 0 else ""
-                self.events.put(("status", f"Downloading model: {status}{pct}"))
+                self.events.put(("status", f"Downloading model: {status}{pct}", MUTED))
                 self.events.put(("progress", frac))
             self.events.put(("setup_hide",))
             self._warm_up()
@@ -285,13 +584,14 @@ class CommandBar:
             self.events.put(("status", f"⚠ {e}", ERR))
             self.events.put(("setup_enable",))
 
-    # ---------- typing ----------
+    # ================= typing & running =================
     def on_key_release(self, event):
         if event.keysym in ("Return", "Down", "Up", "Escape"):
             return
         q = self.text()
-        self._hide_answer()
-        matches = [a for a in self.apps if q and a.matches(q)][:7]
+        if self.answer_text and not self.streaming and self.busy_since is None:
+            self._hide_answer()
+        matches = [a for a in self.apps if q and len(q) >= 2 and a.matches(q)][:6]
         self.show_results([(a.name, a) for a in matches])
 
     def on_submit(self, _event=None):
@@ -302,35 +602,41 @@ class CommandBar:
         self._generation += 1
         gen = self._generation
         self.busy_since = time.monotonic()
+        self.show_results([])
+        self.pulse.pack(side="left", padx=(0, 10), before=self.status)
+        self.pulse.start()
         self._tick(gen)
 
         def worker():
             try:
                 res = actions.run(action, self.cfg, self.llm)
-                self.events.put(("status", res.message or ""))
+                if res.message:
+                    self.events.put(("status", res.message))
                 if res.files:
                     self.events.put(("files", res.files))
                 if res.quit_app:
                     self.events.put(("quit",))
                     return
-                if res.hide_window:
-                    self.events.put(("hide",))
+                if res.stream is None:
+                    self.events.put(("done", gen))
+                    if res.hide_window:
+                        time.sleep(0.4)
+                        self.events.put(("hide",))
                     return
-                if res.stream is not None:
-                    first = True
-                    try:
-                        for piece in res.stream:
-                            if gen != self._generation:
-                                return  # cancelled: leaving the loop closes the request
-                            if first:
-                                self.events.put(("answer_start", gen))
-                                first = False
-                            self.events.put(("answer", piece, gen))
-                    finally:
-                        res.stream.close()
-                        self.events.put(("done", gen))
-                    if first and gen == self._generation:
-                        self.events.put(("status", "The AI returned an empty answer. Try rephrasing.", ERR))
+                first = True
+                try:
+                    for piece in res.stream:
+                        if gen != self._generation:
+                            return
+                        if first:
+                            self.events.put(("answer_start", gen))
+                            first = False
+                        self.events.put(("answer", piece, gen))
+                finally:
+                    res.stream.close()
+                    self.events.put(("done", gen))
+                if first and gen == self._generation:
+                    self.events.put(("status", "The AI returned an empty answer. Try rephrasing.", ERR))
             except (OllamaError, OSError, RuntimeError) as e:
                 if gen == self._generation:
                     self.events.put(("done", gen))
@@ -338,19 +644,45 @@ class CommandBar:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    # ---------- results list ----------
+    def _tick(self, gen: int):
+        if gen != self._generation or self.busy_since is None:
+            return
+        secs = int(time.monotonic() - self.busy_since)
+        lang = self.llm.language
+        where = f" in {LANGUAGE_BY_NAME[lang][1]}" if lang != "English" else ""
+        hint = "  ·  older laptops can take 20-60s" if secs >= 8 else ""
+        self.set_status(f"Thinking{where}…  {secs}s{hint}", CYAN)
+        self.foot_hint.configure(text="Esc  stop")
+        self.root.after(1000, lambda: self._tick(gen))
+
+    def on_escape(self, _event=None):
+        if self.busy_since is not None or self.streaming:
+            self._generation += 1
+            self.busy_since = None
+            self.streaming = False
+            self.pulse.stop()
+            self.pulse.pack_forget()
+            self.foot_hint.configure(text=self._hint_text())
+            self.set_status("■ Stopped.", MUTED)
+        else:
+            self.hide()
+
+    def _hint_text(self) -> str:
+        return f"{self._hk()}  summon   ·   ↑↓  select   ·   Esc  hide"
+
+    # ================= results list =================
     def show_results(self, items):
         self.results = items
         self.listbox.delete(0, "end")
         for label, target in items:
-            prefix = "📄  " if isinstance(target, Path) else "▸  "
+            prefix = "   ▤   " if isinstance(target, Path) else "   ▶   "
             self.listbox.insert("end", prefix + label)
         if items:
-            self.listbox.configure(height=min(len(items), 8))
-            self.listbox.pack(fill="x", pady=(6, 0))
+            self.listbox.configure(height=min(len(items), 7))
+            self.listbox.pack(fill="x", pady=(self._px(8), 0), after=self.status_row)
         else:
             self.listbox.pack_forget()
-        self._resize()
+        self._layout()
 
     def focus_results(self, _event=None):
         if self.results:
@@ -380,54 +712,42 @@ class CommandBar:
         except OSError as e:
             self.set_status(f"⚠ {e}", ERR)
 
-    # ---------- answer area ----------
+    # ================= answer card =================
     def _answer_start(self):
         self.listbox.pack_forget()
-        self.answer.configure(state="normal")
-        self.answer.delete("1.0", "end")
-        self.answer.configure(state="disabled")
-        self.answer.pack(fill="both", expand=True, pady=(6, 0))
-        if self.status.cget("text").startswith("Thinking…"):
+        self._answer_clear()
+        lang = self.llm.language
+        self.answer_lang.configure(text="" if lang == "English" else f"· {LANGUAGE_BY_NAME[lang][1]}")
+        self.card.pack(fill="both", expand=True, pady=(self._px(10), 0), after=self.status_row)
+        if self.status.cget("text").startswith("Thinking"):
             self.set_status("")
-        self._resize()
+        self._layout()
 
     def _answer_clear(self):
+        self.answer_text = ""
         self.answer.configure(state="normal")
         self.answer.delete("1.0", "end")
         self.answer.configure(state="disabled")
 
     def _answer_append(self, piece: str):
+        self.answer_text += piece
         self.answer.configure(state="normal")
         self.answer.insert("end", piece)
         self.answer.see("end")
         self.answer.configure(state="disabled")
 
     def _hide_answer(self):
-        if self.answer.winfo_ismapped():
-            self.answer.pack_forget()
-            self._resize()
+        if self.card.winfo_ismapped():
+            self.card.pack_forget()
+            self._layout()
 
-    def _tick(self, gen: int):
-        """Shows 'Thinking… 12s' until the first word arrives, so the app never looks frozen."""
-        if gen != self._generation or self.busy_since is None:
-            return
-        secs = int(time.monotonic() - self.busy_since)
-        hint = "  (older laptops can take 20-60s for the first answer)" if secs >= 8 else ""
-        self.set_status(f"Thinking… {secs}s{hint}")
-        self.foot_hint.configure(text="Esc to stop")
-        self.root.after(1000, lambda: self._tick(gen))
+    def copy_answer(self):
+        if self.answer_text:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.answer_text.strip())
+            self.set_status("⧉ Copied to clipboard.", GREEN)
 
-    def on_escape(self, _event=None):
-        if self.busy_since is not None or self.streaming:
-            self._generation += 1  # worker sees the change and closes the request
-            self.busy_since = None
-            self.streaming = False
-            self.foot_hint.configure(text="Esc to hide")
-            self.set_status("Stopped.")
-        else:
-            self.hide()
-
-    def set_status(self, text: str, color: str = ACCENT):
+    def set_status(self, text: str, color: str = CYAN):
         self.status.configure(text=text, fg=color)
 
     def run(self):
@@ -439,7 +759,7 @@ def _enable_dpi_awareness() -> None:
     if sys.platform != "win32":
         return
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # system-DPI aware
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except (AttributeError, OSError):
         try:
             ctypes.windll.user32.SetProcessDPIAware()
@@ -451,7 +771,7 @@ def run_gui(cfg: Config) -> int:
     _enable_dpi_awareness()
     instance = SingleInstance()
     if not instance.is_primary:
-        instance.signal_primary()  # already running: just pop its window up
+        instance.signal_primary()
         return 0
     CommandBar(cfg, instance).run()
     return 0

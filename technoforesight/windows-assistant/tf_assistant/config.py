@@ -27,6 +27,8 @@ class Config:
     search_roots: tuple[str, ...] = ("~/Desktop", "~/Documents", "~/Downloads", "~/OneDrive")
     # Global shortcut that shows the command bar from anywhere
     hotkey: str = "alt+space"
+    # Language the AI answers in (see llm.LANGUAGES): English, Telugu, Hindi, Tamil, ...
+    response_language: str = "English"
     assistant_name: str = "TechnoForesight Assistant"
 
 

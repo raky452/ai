@@ -29,6 +29,14 @@ jobs:
           python-version: '3.12'
       - name: Build app and installer
         run: ./build.ps1
+      - name: Render UI preview screenshots
+        run: |
+          python -m pip install pillow
+          python tools/ui_preview.py dist/preview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-preview
+          path: technoforesight/windows-assistant/dist/preview/*.png
       - uses: actions/upload-artifact@v4
         with:
           name: TechnoForesightAssistant-windows

@@ -9,6 +9,33 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 
+# (English name, native name, script) for the response-language picker
+LANGUAGES = [
+    ("English", "English", "Latin"),
+    ("Telugu", "తెలుగు", "Telugu"),
+    ("Hindi", "हिन्दी", "Devanagari"),
+    ("Tamil", "தமிழ்", "Tamil"),
+    ("Kannada", "ಕನ್ನಡ", "Kannada"),
+    ("Malayalam", "മലയാളം", "Malayalam"),
+    ("Marathi", "मराठी", "Devanagari"),
+    ("Bengali", "বাংলা", "Bengali"),
+    ("Gujarati", "ગુજરાતી", "Gujarati"),
+    ("Punjabi", "ਪੰਜਾਬੀ", "Gurmukhi"),
+    ("Odia", "ଓଡ଼ିଆ", "Odia"),
+    ("Urdu", "اردو", "Urdu (Perso-Arabic)"),
+]
+LANGUAGE_BY_NAME = {name: (name, native, script) for name, native, script in LANGUAGES}
+
+
+def language_instruction(language: str) -> str:
+    if language not in LANGUAGE_BY_NAME or language == "English":
+        return "Reply in English unless the user clearly asks for another language."
+    name, native, script = LANGUAGE_BY_NAME[language]
+    return (f"Always reply in {name} ({native}), written in the {script} script, even if the question is in "
+            f"English or another language. Keep app names, file names, numbers and technical terms as they are. "
+            f"Use simple, natural, everyday {name}.")
+
+
 SYSTEM_PROMPT = (
     "You are {name}, an offline assistant running privately on the user's Windows laptop. "
     "Answer clearly and briefly. If asked about files, only use the text you are given."
@@ -97,11 +124,16 @@ class OllamaError(RuntimeError):
 
 class OllamaClient:
     def __init__(self, base_url: str, model: str, assistant_name: str = "TechnoForesight Assistant",
-                 max_tokens: int = 700):
+                 max_tokens: int = 700, language: str = "English"):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.max_tokens = max_tokens
-        self.system_prompt = SYSTEM_PROMPT.format(name=assistant_name)
+        self.language = language
+        self.base_prompt = SYSTEM_PROMPT.format(name=assistant_name)
+
+    @property
+    def system_prompt(self) -> str:
+        return self.base_prompt + " " + language_instruction(self.language)
 
     def _request(self, path: str, payload: dict | None = None, timeout: float = 600):
         data = json.dumps(payload).encode() if payload is not None else None

@@ -210,3 +210,14 @@ def test_save_setting(tmp_path):
     assert text.count("model =") == 1 and "# my settings" in text
     loaded = load_config(cfg)
     assert loaded.model == "qwen3:0.6b" and loaded.hotkey == "ctrl+space"
+
+
+def test_response_language_prompt():
+    from tf_assistant.llm import LANGUAGES, language_instruction
+    names = [n for n, _, _ in LANGUAGES]
+    assert {"English", "Telugu", "Hindi", "Tamil", "Kannada", "Malayalam"} <= set(names)
+    c = OllamaClient("http://x", "m", language="Telugu")
+    assert "Telugu (తెలుగు)" in c.system_prompt and "Telugu script" in c.system_prompt
+    c.language = "Hindi"
+    assert "हिन्दी" in c.system_prompt
+    assert "English" in language_instruction("English")

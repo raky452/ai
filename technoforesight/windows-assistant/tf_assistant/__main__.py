@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cfg = load_config()
-    llm = OllamaClient(cfg.ollama_url, cfg.model, cfg.assistant_name)
+    llm = OllamaClient(cfg.ollama_url, cfg.model, cfg.assistant_name, language=cfg.response_language)
 
     if args.command == "doctor":
         print(f"Version     : {__version__}")
@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"AI engine   : {cfg.ollama_url}")
         print(f"Model       : {cfg.model}")
         print(f"Hotkey      : {cfg.hotkey}")
+        print(f"Language    : {cfg.response_language}")
         print(f"Apps found  : {len(load_apps())}")
         problem = llm.check()
         print("Status      : " + (problem or "Ready ✔"))
