@@ -33,6 +33,12 @@ jobs:
         run: |
           python -m pip install pillow
           python tools/ui_preview.py dist/preview
+          # Also print the images into the log (base64) so they can be reviewed without artifact downloads
+          Get-ChildItem dist/preview -Filter *.png | ForEach-Object {
+            Write-Output "===PNG $($_.Name)==="
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) -split '(.{0,8000})' | Where-Object { $_ } | ForEach-Object { Write-Output "B64:$_" }
+            Write-Output "===END==="
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: ui-preview
