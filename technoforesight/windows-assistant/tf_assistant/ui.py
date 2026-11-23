@@ -19,7 +19,8 @@ from tkinter import ttk
 
 from . import APP_NAME, WEBSITE, actions, files
 from .apps import App, launch, load_apps
-from .config import DEFAULT_MODEL, FAST_MODEL, SLOW_TOKENS_PER_SEC, Config, save_setting, user_set
+from .config import (DEFAULT_MODEL, FAST_MODEL, INDIC_MODEL_SIZE, SLOW_TOKENS_PER_SEC, Config, save_setting,
+                     user_set)
 from .llm import LANGUAGE_BY_NAME, LANGUAGES, RESET, OllamaClient, OllamaError
 from .router import UseModel, route
 from .winsys import SingleInstance, start_hotkey_listener
@@ -398,10 +399,38 @@ class CommandBar:
             menu.grab_release()
 
     # ---------- model choice ----------
+    def _has_model(self, name: str) -> bool:
+        installed = getattr(self, "_installed", set())
+        return (name if ":" in name else name + ":latest") in installed
+
+    def _refresh_installed(self):
+        try:
+            self._installed = set(self.llm.installed_models())
+        except OllamaError:
+            pass
+
     def _model_for_language(self) -> str:
-        if self.llm.language != "English" and self.cfg.indic_model:
+        """Indian languages use the Indian-language model once it's downloaded; until then the
+        main model keeps answering so the app never stops working."""
+        if self.llm.language != "English" and self.cfg.indic_model and self._has_model(self.cfg.indic_model):
             return self.cfg.indic_model
         return self.cfg.model
+
+    def _offer_indic_model(self):
+        """Background: if an Indian language is selected and its better model is missing, offer it."""
+        name = self.cfg.indic_model
+        if self.llm.language == "English" or not name or name == self.cfg.model:
+            return
+        self._refresh_installed()
+        if self._has_model(name):
+            self._apply_model_for_language_bg()
+            self.events.put(("speed", 0))
+            return
+        self._pull_target = name
+        native = LANGUAGE_BY_NAME[self.llm.language][1]
+        self.events.put(("setup", "indic"))
+        self.events.put(("status", f"Answers work now. For much better {native}, download {name} once "
+                                   f"(~{INDIC_MODEL_SIZE}, free, works offline).", AMBER))
 
     def _apply_model_for_language_bg(self):
         """Thread-safe variant: only changes the client model (label updates on next submit)."""
@@ -433,8 +462,6 @@ class CommandBar:
         probe = OllamaClient(self.cfg.ollama_url, name, self.cfg.assistant_name)
         problem = probe.check()
         if problem and "isn't downloaded" in problem:
-            prev = self.llm.model
-            self.llm.model = name
             self._pull_target = name
             self.events.put(("setup", "pull"))
             self.events.put(("status", f"⬇ {name} isn't downloaded yet. Click the button to download it.", AMBER))
@@ -442,10 +469,13 @@ class CommandBar:
         if problem:
             self.events.put(("status", "⚠ " + problem, ERR))
             return
+        self._refresh_installed()
+        self._apply_model_for_language_bg()
         saved = self.llm.model
         self.llm.model = name
         self._warm_up()
         self.llm.model = saved
+        self.events.put(("speed", 0))
         self.events.put(("status", f"✔ Now using {name}.", GREEN))
 
     def set_language(self, name: str):
@@ -460,6 +490,11 @@ class CommandBar:
         native = LANGUAGE_BY_NAME[name][1]
         self.set_status(f"✔ I'll answer in {native} from now on.", GREEN)
         self.entry.focus_set()
+        if name != "English":
+            threading.Thread(target=self._offer_indic_model, daemon=True).start()
+        elif self.setup.winfo_ismapped() and self.setup_mode == "indic":
+            self.setup.pack_forget()
+            self._layout()
 
     # ================= placeholder =================
     def _show_placeholder(self):
@@ -562,9 +597,13 @@ class CommandBar:
         self.events.put(("apps", load_apps()))
 
     def _check_engine(self):
+        self.llm.model = self.cfg.model
         problem = self.llm.check()
         if problem is None:
+            self._refresh_installed()
+            self._apply_model_for_language_bg()
             self._warm_up()
+            self._offer_indic_model()
             return
         if "Can't reach" in problem:
             self.events.put(("engine", "ENGINE OFF", ERR))
@@ -601,7 +640,8 @@ class CommandBar:
         label = {"install": "⬇  Install Ollama (free AI engine)",
                  "pull": f"⬇  Download AI model ({self._pending_model()})",
                  "recheck": "↻  I've installed it, check again",
-                 "fast": f"⚡  Switch to faster model ({FAST_MODEL}, ~1.4 GB)"}[mode]
+                 "fast": f"⚡  Switch to faster model ({FAST_MODEL}, ~1.4 GB)",
+                 "indic": f"⬇  Better Indian languages: get {self._pending_model()} (~{INDIC_MODEL_SIZE})"}[mode]
         self.setup_btn.configure(text=label)
         self.setup.pack(fill="x", pady=(self._px(8), 0), after=self.status_row)
         self._layout()
@@ -619,7 +659,7 @@ class CommandBar:
             self.setup.pack_forget()
             self.set_status("Checking…", MUTED)
             threading.Thread(target=self._check_engine, daemon=True).start()
-        elif self.setup_mode in ("pull", "fast"):
+        elif self.setup_mode in ("pull", "fast", "indic"):
             if self.setup_mode == "fast":
                 self.llm.model = self.cfg.model = FAST_MODEL
                 save_setting("model", FAST_MODEL)
@@ -640,6 +680,7 @@ class CommandBar:
                 self.events.put(("progress", frac))
             self._pull_target = None
             self.events.put(("setup_hide",))
+            self._refresh_installed()
             self._apply_model_for_language_bg()
             self._warm_up()
         except OllamaError as e:

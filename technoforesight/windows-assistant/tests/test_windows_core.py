@@ -255,3 +255,45 @@ def test_use_model_command():
     assert route("use model gemma4:e4b for indian languages", APPS) == UseModel("gemma4:e4b", "indic")
     assert route("use model qwen3:8b", APPS) == UseModel("qwen3:8b", "all")
     assert route("switch to model gemma4:e2b for other languages", APPS) == UseModel("gemma4:e2b", "indic")
+
+
+def test_markdown_cleaner_handles_split_chunks():
+    from tf_assistant.llm import MarkdownCleaner
+    src = "**Subject:** [మీ పేరు]\n## Heading\n* one\n- two\nkeep 2*3 and file_name.txt\n"
+    want = "Subject: [మీ పేరు]\nHeading\n• one\n• two\nkeep 2*3 and file_name.txt\n"
+    for size in (1, 2, 3, 5, 64):
+        m = MarkdownCleaner()
+        out = "".join(m.feed(src[i:i + size]) for i in range(0, len(src), size)) + m.flush()
+        assert out == want, size
+
+
+def test_indian_language_prompt_forbids_other_scripts():
+    from tf_assistant.llm import language_instruction
+    text = language_instruction("Telugu")
+    assert "Telugu script" in text and "Vietnamese" in text and "Markdown" in text
+
+
+def test_indic_model_default_and_fallback():
+    import importlib.util
+
+    import pytest
+    if importlib.util.find_spec("tkinter") is None:
+        pytest.skip("no tkinter")
+    from tf_assistant.config import Config
+    from tf_assistant.ui import CommandBar
+    cfg = Config()
+    assert cfg.indic_model == "gemma4:e4b"
+
+    class Fake:  # just enough of CommandBar for the model choice
+        _has_model = CommandBar._has_model
+        _model_for_language = CommandBar._model_for_language
+
+    bar = Fake()
+    bar.cfg = cfg
+    bar.llm = type("L", (), {"language": "Telugu"})()
+    bar._installed = {"qwen3:4b-instruct"}
+    assert bar._model_for_language() == "qwen3:4b-instruct"   # not downloaded yet: keep working
+    bar._installed.add("gemma4:e4b")
+    assert bar._model_for_language() == "gemma4:e4b"
+    bar.llm.language = "English"
+    assert bar._model_for_language() == "qwen3:4b-instruct"

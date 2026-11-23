@@ -14,6 +14,9 @@ except ModuleNotFoundError:  # pragma: no cover
 APP_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "TechnoForesight"
 CONFIG_PATH = APP_DIR / "config.toml"
 
+INDIC_MODEL = "gemma4:e4b"   # better Indian-language writing
+INDIC_MODEL_SIZE = "6.6 GB"
+
 
 DEFAULT_CONNECTORS = {
     "yt": "https://www.youtube.com/results?search_query={q}",
@@ -38,9 +41,10 @@ class Config:
     hotkey: str = "alt+space"
     # Language the AI answers in (see llm.LANGUAGES): English, Telugu, Hindi, Tamil, ...
     response_language: str = "English"
-    # Optional model used when the response language isn't English (e.g. "gemma4:e4b", which handles
-    # Indian scripts better than small Qwen models). Empty = use `model` for every language.
-    indic_model: str = ""
+    # Model used when the response language isn't English. Gemma 4 (Apache-2.0) writes far cleaner
+    # Telugu/Hindi/Tamil than small Qwen models. Until it's downloaded, `model` answers and the app
+    # offers the download. Empty = use `model` for every language.
+    indic_model: str = INDIC_MODEL
     assistant_name: str = "TechnoForesight Assistant"
     # Connectors: one word opens a website or tool. "{q}" is replaced by the rest of what you type.
     connectors: dict = field(default_factory=lambda: dict(DEFAULT_CONNECTORS))

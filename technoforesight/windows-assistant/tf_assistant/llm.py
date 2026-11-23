@@ -33,7 +33,9 @@ def language_instruction(language: str) -> str:
     name, native, script = LANGUAGE_BY_NAME[language]
     return (f"Always reply in {name} ({native}), written in the {script} script, even if the question is in "
             f"English or another language. Keep app names, file names, numbers and technical terms as they are. "
-            f"Use simple, natural, everyday {name}.")
+            f"Use simple, natural, everyday {name}. Write only {name} words in the {script} script plus "
+            f"English for technical terms; never use words from any other language (for example "
+            f"Vietnamese, Chinese or Russian). Write plain text without Markdown symbols like ** or #.")
 
 
 SYSTEM_PROMPT = (
@@ -65,6 +67,69 @@ def join_stream(pieces) -> str:
         else:
             out.append(piece)
     return "".join(out)
+
+
+class MarkdownCleaner:
+    """Streaming clean-up of Markdown the answer card can't render: removes ** and __ bold markers,
+    leading # headings and turns "* " / "- " bullets into "• ". Holds back at most a few characters
+    so markers split across chunks are still caught."""
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._line_start = True
+
+    def feed(self, chunk: str) -> str:
+        self._buffer += chunk
+        return self._drain(final=False)
+
+    def flush(self) -> str:
+        return self._drain(final=True)
+
+    def _drain(self, final: bool) -> str:
+        out: list[str] = []
+        buf = self._buffer
+        i = 0
+        while i < len(buf):
+            rest = buf[i:]
+            if self._line_start:
+                stripped = rest.lstrip(" \t")
+                lead = rest[:len(rest) - len(stripped)]
+                if not stripped and not final:
+                    break  # wait to see what the line starts with
+                if stripped.startswith("#"):
+                    hashes = len(stripped) - len(stripped.lstrip("#"))
+                    after = stripped[hashes:]
+                    if not after and not final:
+                        break
+                    if after.startswith(" ") or not after:
+                        i += len(lead) + hashes + (1 if after.startswith(" ") else 0)
+                        self._line_start = False
+                        continue
+                if stripped[:2] in ("* ", "- "):
+                    out.append(lead + "• ")
+                    i += len(lead) + 2
+                    self._line_start = False
+                    continue
+                if stripped in ("*", "-") and not final:
+                    break
+                self._line_start = False
+                continue
+            ch = buf[i]
+            if ch in "*_":
+                if i + 1 >= len(buf) and not final:
+                    break  # might be the first half of ** / __
+                if buf[i + 1:i + 2] == ch:
+                    i += 2
+                    continue
+            out.append(ch)
+            if ch == "\n":
+                self._line_start = True
+            i += 1
+        self._buffer = buf[i:]
+        if final:
+            out.append(self._buffer)
+            self._buffer = ""
+        return "".join(out)
 
 
 class ThinkFilter:
@@ -210,6 +275,7 @@ class OllamaClient:
             # Model or older Ollama doesn't support the think switch: ask without it
             resp = self._request("/api/chat", self._chat_payload(messages, think=None))
         flt = ThinkFilter()
+        md = MarkdownCleaner()
         with resp:
             for line in resp:
                 if cancel is not None and cancel.is_set():
@@ -220,10 +286,16 @@ class OllamaClient:
                 if "error" in event:
                     raise OllamaError(event["error"])
                 for piece in flt.feed(event.get("message", {}).get("content", "")):
-                    yield piece
+                    if piece == RESET:
+                        md = MarkdownCleaner()
+                        yield piece
+                    else:
+                        clean = md.feed(piece)
+                        if clean:
+                            yield clean
                 if event.get("done"):
                     break
-        tail = flt.flush()
+        tail = md.feed(flt.flush() or "") + md.flush()
         if tail:
             yield tail
 

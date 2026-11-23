@@ -1,6 +1,6 @@
 # TechnoForesight Assistant for Windows
 
-**Latest release: v0.3.2** · [Download](https://technoforesight.in/assistant) · [Releases](https://github.com/raky452/ai/releases) · Ad: [Telugu](https://youtu.be/6oqI3PJZu7c) / [English](https://youtu.be/US3ozZIHie0)
+**Latest release: v0.3.3** · [Download](https://technoforesight.in/assistant) · [Releases](https://github.com/raky452/ai/releases) · Ad: [Telugu](https://youtu.be/6oqI3PJZu7c) / [English](https://youtu.be/US3ozZIHie0)
 
 An **offline AI command bar** for Windows 10/11. Press **Alt+Space** from anywhere and type:
 
@@ -40,6 +40,8 @@ A borderless, rounded panel with a neon gradient edge:
 
 On first launch the app checks for Ollama, offers to download the model, then runs a short **speed test**. On slow PCs it offers the faster `qwen3:1.7b`.
 
+When you pick an Indian language (🌐 chip), the app offers a one-time download of **Gemma 4** (`gemma4:e4b`, ~6.6 GB), which writes much cleaner Telugu, Hindi, Tamil and others. Until it is downloaded, the main model keeps answering.
+
 ## Settings
 
 Optional file: `%APPDATA%\TechnoForesight\config.toml`
@@ -49,7 +51,7 @@ hotkey = "ctrl+space"        # default alt+space
 model = "qwen3:8b"           # any model from ollama.com/library
 search_roots = ["~/Desktop", "~/Documents", "D:/Work"]
 response_language = "Telugu"
-indic_model = "gemma4:e4b"   # used only for non-English answers
+indic_model = "gemma4:e4b"   # default; used only for non-English answers ("" = use model)
 
 [connectors]
 store = "https://technoforesight.in"
@@ -99,6 +101,7 @@ tests/        router, apps, files, hotkey, languages, connectors, Ollama client,
 | Version | Changes |
 |---|---|
 | 0.3.2 | `use model …` command; optional separate model for Indian-language answers (`indic_model`) |
+| 0.3.3 | Gemma 4 (`gemma4:e4b`) is the default model for Indian languages: offered as a one-time download when you pick one, with the main model answering until then. Indian-language answers stay in one script; Markdown symbols (`**`, `#`) are cleaned out of answers |
 | 0.3.1 | Qwen-recommended sampling and repetition penalties (no more looping Telugu answers) |
 | 0.3.0 | Connectors: one word opens your sites; `add/remove connector`; Connectors chip |
 | 0.2.0 | 12 response languages; new neon UI; answer card that fits its content |
