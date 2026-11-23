@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,7 +149,8 @@ def route(text: str, apps: list[App], connectors: dict[str, str] | None = None) 
     if m := _SETTINGS.match(text):
         page = m.group(3).strip().lower()
         if page in SETTINGS_PAGES:
-            return OpenSettings(page or "home", SETTINGS_PAGES[page])
+            uri = SETTINGS_PAGES[page] if sys.platform == "win32" else f"linux-settings:{page}"
+            return OpenSettings(page or "home", uri)
 
     if m := _URL.match(text):
         url = m.group(1)

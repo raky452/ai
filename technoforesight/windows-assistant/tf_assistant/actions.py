@@ -33,7 +33,8 @@ def _open(target: str) -> None:
     if sys.platform == "win32":
         os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
     else:
-        webbrowser.open(target)
+        from .linuxsys import open_target
+        open_target(target)
 
 
 def run(action: Action, cfg: Config, llm: OllamaClient) -> Result:
@@ -73,7 +74,11 @@ def run(action: Action, cfg: Config, llm: OllamaClient) -> Result:
 
     if isinstance(action, System):
         if action.command == "lock":
-            ctypes.windll.user32.LockWorkStation()  # type: ignore[attr-defined]
+            if sys.platform == "win32":
+                ctypes.windll.user32.LockWorkStation()  # type: ignore[attr-defined]
+            else:
+                from .linuxsys import lock_screen
+                lock_screen()
             return Result("Locking…", hide_window=True)
         return Result("Goodbye!", quit_app=True)
 

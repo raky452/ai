@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=TechnoForesight Assistant
-Comment=Offline AI assistant: open apps, find files, summarise documents
+Comment=Offline AI assistant: open apps, find files, summarise documents, answer in Indian languages
 Exec=technoforesight-assistant
 Icon=in.technoforesight.Assistant
 Terminal=false
-Categories=Utility;Accessibility;
-Keywords=ai;assistant;launcher;search;offline;
+Categories=Utility;
+Keywords=ai;assistant;launcher;search;offline;telugu;hindi;
 StartupNotify=false
+StartupWMClass=TechnoForesightAssistant

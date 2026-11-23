@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -39,7 +40,7 @@ def language_instruction(language: str) -> str:
 
 
 SYSTEM_PROMPT = (
-    "You are {name}, an offline assistant running privately on the user's Windows laptop. "
+    "You are {name}, an offline assistant running privately on the user's {os} computer. "
     "Answer clearly and briefly. If asked about files, only use the text you are given."
 )
 
@@ -194,7 +195,8 @@ class OllamaClient:
         self.model = model
         self.max_tokens = max_tokens
         self.language = language
-        self.base_prompt = SYSTEM_PROMPT.format(name=assistant_name)
+        self.base_prompt = SYSTEM_PROMPT.format(name=assistant_name,
+                                                os="Windows" if sys.platform == "win32" else "Linux")
 
     @property
     def system_prompt(self) -> str:

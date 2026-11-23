@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import zipfile
 from pathlib import Path
 
@@ -50,10 +51,19 @@ def _read_docx(path: Path) -> str:
 def _read_pdf(path: Path) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as e:  # pragma: no cover - bundled in the Windows build
-        raise RuntimeError("PDF support isn't installed (pip install pypdf).") from e
-    reader = PdfReader(str(path))
-    return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except ImportError:
+        PdfReader = None  # noqa: N806
+    if PdfReader is not None:  # bundled in the Windows build; python3-pypdf on Linux
+        reader = PdfReader(str(path))
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    import shutil
+    import subprocess
+    if shutil.which("pdftotext"):  # poppler-utils, present on most Linux desktops
+        out = subprocess.run(["pdftotext", "-layout", str(path), "-"], capture_output=True,  # noqa: S603,S607
+                             text=True, timeout=60)
+        if out.returncode == 0:
+            return out.stdout
+    raise RuntimeError("PDF support isn't installed (install python3-pypdf or poppler-utils).")
 
 
 def read_document(path: Path, max_chars: int) -> str:
@@ -76,4 +86,8 @@ def read_document(path: Path, max_chars: int) -> str:
 
 
 def open_path(path: Path) -> None:
-    os.startfile(str(path))  # type: ignore[attr-defined]  # noqa: S606
+    if sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]  # noqa: S606
+    else:
+        from .linuxsys import open_target
+        open_target(str(path))

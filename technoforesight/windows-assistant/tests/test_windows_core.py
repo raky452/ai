@@ -37,10 +37,13 @@ def test_open_app(text, name):
     assert isinstance(a, OpenApp) and a.app.name == name
 
 
-def test_settings_lock_quit():
+def test_settings_lock_quit(monkeypatch):
+    monkeypatch.setattr("tf_assistant.router.sys.platform", "win32")
     assert route("settings wifi", APPS) == OpenSettings("wifi", "ms-settings:network-wifi")
     assert route("open settings bluetooth", APPS) == OpenSettings("bluetooth", "ms-settings:bluetooth")
     assert route("settings", APPS) == OpenSettings("home", "ms-settings:")
+    monkeypatch.setattr("tf_assistant.router.sys.platform", "linux")
+    assert route("settings wifi", APPS) == OpenSettings("wifi", "linux-settings:wifi")
     assert route("lock pc", APPS) == System("lock")
     assert route("exit assistant", APPS) == System("quit")
 

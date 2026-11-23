@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 try:  # Python 3.11+
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover
-    tomllib = None  # type: ignore[assignment]
+    try:  # Python 3.10 (Ubuntu 22.04): python3-tomli
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore[assignment]
 
-APP_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "TechnoForesight"
+if sys.platform == "win32":
+    APP_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "TechnoForesight"
+else:  # ~/.config/technoforesight (XDG)
+    APP_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "technoforesight"
 CONFIG_PATH = APP_DIR / "config.toml"
 
 INDIC_MODEL = "gemma4:e4b"   # better Indian-language writing

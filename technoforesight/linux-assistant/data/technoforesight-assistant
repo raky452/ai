@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launcher for TechnoForesight Assistant. APP_HOME is replaced at install time.
+APP_HOME="${TF_APP_HOME:-/opt/technoforesight-assistant}"
+PYTHONPATH="$APP_HOME${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m tf_assistant "$@"

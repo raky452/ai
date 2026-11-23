@@ -1,0 +1,70 @@
+name: Build Linux Assistant
+
+on:
+  push:
+    branches: [main]
+    paths: ['technoforesight/windows-assistant/**', 'technoforesight/linux-assistant/**', '.github/workflows/linux-assistant.yml']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a GitHub Release (tag linux-v<version>), only if the end-to-end test passes'
+        type: boolean
+        default: false
+      e2e:
+        description: 'Run the end-to-end test with real AI models (about 15 minutes)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-tk python3-pytest python3-pypdf poppler-utils fonts-noto-core \
+            xvfb xdotool imagemagick x11-utils libglib2.0-bin
+      - name: Unit tests (system Python, real Tk window under Xvfb)
+        working-directory: technoforesight/windows-assistant
+        run: xvfb-run -a python3 -m pytest -q tests
+      - name: Build .deb and tarball
+        run: technoforesight/linux-assistant/build.sh
+      - name: Install the .deb like a user would
+        run: |
+          sudo apt-get install -y ./technoforesight/linux-assistant/dist/TechnoForesightAssistant-Linux.deb
+          technoforesight-assistant --version
+          desktop-file-validate /usr/share/applications/in.technoforesight.Assistant.desktop || true
+      - name: Install Ollama and models
+        if: github.event_name == 'push' || inputs.e2e
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for i in $(seq 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull qwen3:4b-instruct
+          ollama pull gemma4:e4b
+      - name: End-to-end test (installed app, real models, real window)
+        if: github.event_name == 'push' || inputs.e2e
+        run: technoforesight/windows-assistant/tools/e2e_linux.sh e2e-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-e2e
+          path: e2e-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechnoForesightAssistant-linux
+          path: technoforesight/linux-assistant/dist/*
+      - name: Publish GitHub Release
+        if: inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: technoforesight/linux-assistant
+        run: |
+          version=$(cd ../windows-assistant && python3 -c 'import tf_assistant; print(tf_assistant.__version__)')
+          # --latest=false keeps the Windows release as "latest", so the website's Windows links never move
+          gh release create "linux-v$version" dist/* --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --latest=false --title "TechnoForesight Assistant for Linux v$version" \
+            --notes "Offline AI command bar for Linux. Ubuntu/Debian/Mint: download the .deb and open it (or: sudo apt install ./TechnoForesightAssistant-Linux.deb). Other distros: extract the .tar.gz and run ./install.sh. Needs Ollama (free) for the AI. Full guide: https://technoforesight.in/assistant-linux"

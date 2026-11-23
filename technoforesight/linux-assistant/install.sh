@@ -1,47 +1,37 @@
 #!/usr/bin/env bash
-# Installs TechnoForesight Assistant for the current user (no root needed except for apt packages).
-# Tested target: Ubuntu / Debian / Linux Mint. Fedora users: see README.
+# Installs TechnoForesight Assistant for the current user from the portable tarball (any distro).
+# Ubuntu/Debian users can install the .deb instead.
 set -euo pipefail
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODEL="${TF_MODEL:-qwen3:4b-instruct}"
-
+APP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/technoforesight-assistant"
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 
-say "Checking system packages (GTK 4 bindings, PDF reader, pipx)"
-missing=()
-python3 -c "import gi; gi.require_version('Gtk','4.0')" 2>/dev/null || missing+=(python3-gi gir1.2-gtk-4.0)
-command -v pdftotext >/dev/null || missing+=(poppler-utils)
-command -v pipx >/dev/null || missing+=(pipx)
-if ((${#missing[@]})); then
-  echo "Installing: ${missing[*]}"
-  sudo apt-get update -qq && sudo apt-get install -y "${missing[@]}"
+say "Checking Python and Tk"
+if ! python3 -c 'import sys, tkinter; assert sys.version_info >= (3, 10)' 2>/dev/null; then
+  echo "Python 3.10+ with Tk is needed. Install it, then run ./install.sh again:"
+  echo "  Ubuntu/Debian/Mint : sudo apt install python3-tk"
+  echo "  Fedora             : sudo dnf install python3-tkinter"
+  echo "  Arch/Manjaro       : sudo pacman -S tk"
+  echo "  openSUSE           : sudo zypper install python3-tk"
+  exit 1
 fi
 
-say "Installing the assistant"
-# --system-site-packages lets it use the system's GTK bindings
-pipx install --force --system-site-packages "$HERE"
+say "Installing to $APP_HOME"
+rm -rf "$APP_HOME" && mkdir -p "$APP_HOME" "$HOME/.local/bin"
+cp -r "$HERE/app/." "$APP_HOME/"
+sed "s#/opt/technoforesight-assistant#$APP_HOME#" "$HERE/technoforesight-assistant" > "$HOME/.local/bin/technoforesight-assistant"
+chmod +x "$HOME/.local/bin/technoforesight-assistant"
 
-say "Adding menu entry and icon"
-mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/scalable/apps
-cp "$HERE/data/in.technoforesight.Assistant.desktop" ~/.local/share/applications/
-cp "$HERE/data/in.technoforesight.Assistant.svg" ~/.local/share/icons/hicolor/scalable/apps/
-
-say "Checking the local AI engine (Ollama)"
-if ! command -v ollama >/dev/null; then
-  cat <<EOF
-Ollama is not installed. Install it from https://ollama.com/download
-(review the script first), then run:
-    ollama pull $MODEL
-EOF
-else
-  ollama pull "$MODEL"
-fi
+say "Adding the menu entry and icon"
+APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+mkdir -p "$APPS" "$ICONS/256x256/apps" "$ICONS/scalable/apps"
+sed "s#^Exec=.*#Exec=$HOME/.local/bin/technoforesight-assistant#" "$HERE/in.technoforesight.Assistant.desktop" > "$APPS/in.technoforesight.Assistant.desktop"
+cp "$APP_HOME/assets/icon.png" "$ICONS/256x256/apps/in.technoforesight.Assistant.png"
+cp "$APP_HOME/assets/icon.svg" "$ICONS/scalable/apps/in.technoforesight.Assistant.svg"
+command -v update-desktop-database >/dev/null && update-desktop-database -q "$APPS" || true
 
 say "Done!"
-cat <<EOF
-Try it:      technoforesight-assistant doctor
-Open bar:    technoforesight-assistant
-Shortcut:    Settings → Keyboard → Custom Shortcuts → add
-             command 'technoforesight-assistant', e.g. Super+Space
-EOF
+command -v ollama >/dev/null || echo "The AI engine (Ollama, free) isn't installed yet: the app shows a button with the one-line installer."
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Note: add ~/.local/bin to your PATH to run it from a terminal.";; esac
+echo "Open 'TechnoForesight Assistant' from your app menu, or run: technoforesight-assistant"

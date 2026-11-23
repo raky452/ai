@@ -8,6 +8,7 @@ pytestmark = pytest.mark.skipif(importlib.util.find_spec("tkinter") is None, rea
 
 
 def test_window_opens_and_routes(monkeypatch):
+    monkeypatch.setenv("TF_NO_SHORTCUT", "1")  # never touch the developer's real desktop shortcuts
     from tf_assistant import ui
     from tf_assistant.config import Config
 

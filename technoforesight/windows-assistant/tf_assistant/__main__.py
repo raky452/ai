@@ -29,13 +29,20 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config()
     llm = OllamaClient(cfg.ollama_url, cfg.model, cfg.assistant_name, language=cfg.response_language)
+    if args.command in ("ask", "do") and cfg.response_language != "English" and cfg.indic_model:
+        try:  # same rule as the window: the Indian-language model once it's downloaded
+            wanted = cfg.indic_model if ":" in cfg.indic_model else cfg.indic_model + ":latest"
+            if wanted in llm.installed_models():
+                llm.model = cfg.indic_model
+        except OllamaError:
+            pass
 
     if args.command == "doctor":
         print(f"Version     : {__version__}")
         print(f"Config file : {CONFIG_PATH} ({'found' if CONFIG_PATH.exists() else 'using defaults'})")
         print(f"AI engine   : {cfg.ollama_url}")
         print(f"Model       : {cfg.model}")
-        print(f"Hotkey      : {cfg.hotkey}")
+        print(f"Hotkey      : {cfg.hotkey if sys.platform == 'win32' else 'Ctrl+Alt+Space (desktop shortcut)'}")
         print(f"Language    : {cfg.response_language}")
         print(f"Apps found  : {len(load_apps())}")
         problem = llm.check()

@@ -1,13 +1,15 @@
-"""Discover and launch Windows apps: classic desktop apps *and* Microsoft Store apps.
+"""Discover and launch installed apps.
 
-Primary source is PowerShell's Get-StartApps (everything in the Start menu, incl. Calculator,
-Settings, WhatsApp...). If that fails we fall back to scanning Start-menu shortcut files.
+Windows: PowerShell's Get-StartApps (everything in the Start menu, incl. Store apps), falling back to
+Start-menu shortcut files. Linux: freedesktop .desktop files (system, user, Flatpak and Snap).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -22,9 +24,13 @@ class App:
     # Either an AppUserModelID (Store/Start apps) or a path to a .lnk/.url/.exe
     target: str
     is_appid: bool = True
+    exec_line: str = ""                 # Linux: Exec= line from the .desktop file
+    keywords: tuple[str, ...] = ()
+    terminal: bool = False
 
     def matches(self, query: str) -> bool:
-        return query.lower() in self.name.lower()
+        q = query.lower()
+        return q in self.name.lower() or any(q in k.lower() for k in self.keywords)
 
 
 _SKIP_WORDS = ("uninstall", "readme", "help", "documentation", "release notes", "website")
@@ -76,9 +82,72 @@ def dedupe_sort(apps: list[App]) -> list[App]:
     return sorted(seen.values(), key=lambda a: a.name.lower())
 
 
+# ---------- Linux (.desktop files) ----------
+_FIELD_CODES = {"%f", "%F", "%u", "%U", "%d", "%D", "%n", "%N", "%i", "%c", "%k", "%v", "%m"}
+
+
+def application_dirs() -> list[Path]:
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    data_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
+    return ([data_home / "applications"] + [Path(d) / "applications" for d in data_dirs if d]
+            + [Path("/var/lib/flatpak/exports/share/applications"),
+               data_home / "flatpak" / "exports" / "share" / "applications",
+               Path("/var/lib/snapd/desktop/applications")])
+
+
+def parse_desktop_file(path: Path) -> App | None:
+    """Reads the [Desktop Entry] section; None for hidden or non-application entries."""
+    entry: dict[str, str] = {}
+    in_entry = False
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("["):
+                in_entry = line == "[Desktop Entry]"
+            elif in_entry and "=" in line:
+                key, _, value = line.partition("=")
+                entry.setdefault(key.strip(), value.strip())
+    except OSError:
+        return None
+    if entry.get("Type") != "Application" or "Name" not in entry or "Exec" not in entry:
+        return None
+    if entry.get("NoDisplay", "").lower() == "true" or entry.get("Hidden", "").lower() == "true":
+        return None
+    if not _useful(entry["Name"]):
+        return None
+    return App(entry["Name"], str(path), is_appid=False, exec_line=entry["Exec"],
+               keywords=tuple(k for k in entry.get("Keywords", "").split(";") if k),
+               terminal=entry.get("Terminal", "").lower() == "true")
+
+
+def scan_desktop_files(dirs: list[Path] | None = None) -> list[App]:
+    """All visible apps; earlier directories win (user overrides beat system files)."""
+    seen: set[str] = set()
+    apps: list[App] = []
+    for d in dirs if dirs is not None else application_dirs():
+        if not d.is_dir():
+            continue
+        for f in sorted(d.rglob("*.desktop")):
+            desktop_id = f.relative_to(d).as_posix().replace("/", "-")
+            if desktop_id in seen:
+                continue
+            seen.add(desktop_id)
+            app = parse_desktop_file(f)
+            if app:
+                apps.append(app)
+    return apps
+
+
+def build_command(exec_line: str) -> list[str]:
+    return [p for p in shlex.split(exec_line)
+            if p not in _FIELD_CODES and not (len(p) == 2 and p.startswith("%"))]
+
+
 def load_apps() -> list[App]:
     if sys.platform != "win32":
-        return []
+        return dedupe_sort(scan_desktop_files())
     try:
         apps = _from_get_startapps()
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -109,6 +178,16 @@ def find_app(query: str, apps: list[App], exact_only: bool = False) -> App | Non
 
 
 def launch(app: App) -> None:
+    if sys.platform != "win32":
+        if shutil.which("gio") and not app.terminal:
+            cmd = ["gio", "launch", app.target]
+        else:
+            cmd = build_command(app.exec_line)
+            if app.terminal:
+                cmd = ["x-terminal-emulator", "-e", *cmd]
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,  # noqa: S603
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        return
     if app.is_appid:
         subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{app.target}"], creationflags=CREATE_NO_WINDOW)
     else:

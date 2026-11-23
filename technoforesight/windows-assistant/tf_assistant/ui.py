@@ -23,10 +23,17 @@ from .config import (DEFAULT_MODEL, FAST_MODEL, INDIC_MODEL_SIZE, SLOW_TOKENS_PE
                      user_set)
 from .llm import LANGUAGE_BY_NAME, LANGUAGES, RESET, OllamaClient, OllamaError
 from .router import UseModel, route
-from .winsys import SingleInstance, start_hotkey_listener
+if sys.platform == "win32":
+    from .winsys import SingleInstance, start_hotkey_listener
+else:
+    from .linuxsys import SingleInstance, start_hotkey_listener
+
+WINDOWS = sys.platform == "win32"
 
 # ---------- design tokens ----------
-KEY = "#010203"            # transparent colour key (outside the rounded panel)
+# Windows: transparent colour key outside the rounded panel. Linux window managers don't support
+# colour-key transparency, so there the area around the panel is a near-black frame.
+KEY = "#010203" if sys.platform == "win32" else "#05070d"
 BG = "#0a0f1e"             # panel
 SURFACE = "#111a2e"        # input, cards
 SURFACE_HI = "#16223b"     # hover
@@ -36,7 +43,10 @@ MUTED = "#7f8db0"
 DIM = "#4b587a"
 CYAN, VIOLET, PINK = "#22d3ee", "#8b5cf6", "#ec4899"
 GREEN, AMBER, ERR = "#34d399", "#fbbf24", "#fca5a5"
-FONT, MONO, INDIC = "Segoe UI", "Consolas", "Nirmala UI"
+if sys.platform == "win32":
+    FONT, MONO, INDIC = "Segoe UI", "Consolas", "Nirmala UI"
+else:  # fontconfig falls back per character, so Noto covers every Indian script it has installed
+    FONT, MONO, INDIC = "Noto Sans", "DejaVu Sans Mono", "Noto Sans"
 WIDTH, RADIUS, PAD = 780, 22, 14
 
 CHIPS = [
@@ -140,19 +150,29 @@ class CommandBar:
         self.speed: float | None = None
         self.answer_text = ""
 
-        self.root = tk.Tk()
+        # className sets WM_CLASS on Linux so the dock groups the window under the app's icon
+        self.root = tk.Tk(className="TechnoForesightAssistant")
         self.root.title(APP_NAME)
         self.root.configure(bg=KEY)
-        self.root.overrideredirect(True)          # borderless: we draw our own rounded panel
-        self.root.attributes("-topmost", True)
-        try:
-            self.root.attributes("-transparentcolor", KEY)
-        except tk.TclError:
-            pass
-        try:
-            self.root.iconbitmap(default=str(_resource("icon.ico")))
-        except tk.TclError:
-            pass
+        if WINDOWS:
+            self.root.overrideredirect(True)      # borderless: we draw our own rounded panel
+            self.root.attributes("-topmost", True)
+            try:
+                self.root.attributes("-transparentcolor", KEY)
+            except tk.TclError:
+                pass
+            try:
+                self.root.iconbitmap(default=str(_resource("icon.ico")))
+            except tk.TclError:
+                pass
+        else:
+            # Keep the window manager's frame on Linux: borderless (override-redirect) windows can't
+            # receive keyboard focus reliably on X11/XWayland.
+            self.root.resizable(False, False)
+            try:
+                self.root.iconphoto(True, tk.PhotoImage(file=str(_resource("icon.png"))))
+            except tk.TclError:
+                pass
         self.scale = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
         self.width = int(WIDTH * self.scale)
         self._style()
@@ -163,8 +183,15 @@ class CommandBar:
         self.hotkey_ok = start_hotkey_listener(cfg.hotkey, lambda: self.events.put(("show",))) is not None
         instance.listen(lambda: self.events.put(("show",)))
         self.root.after(60, self._pump)
-        self.set_status(f"Press {self._hk()} anywhere to summon me." if self.hotkey_ok
-                        else f"{self._hk()} is used by another app. Change 'hotkey' in config.toml.", MUTED)
+        if WINDOWS:
+            self.set_status(f"Press {self._hk()} anywhere to summon me." if self.hotkey_ok
+                            else f"{self._hk()} is used by another app. Change 'hotkey' in config.toml.", MUTED)
+        else:
+            from .linuxsys import SHORTCUT_LABEL, ensure_gnome_shortcut
+            self.hotkey_ok = ensure_gnome_shortcut()
+            self.set_status(f"Press {SHORTCUT_LABEL} anywhere to summon me." if self.hotkey_ok
+                            else "Tip: add a keyboard shortcut for 'technoforesight-assistant' in your desktop's "
+                                 "keyboard settings.", MUTED)
         self.show()
 
     # ================= construction =================
@@ -653,7 +680,14 @@ class CommandBar:
         if self._setup_busy:
             return
         if self.setup_mode == "install":
-            webbrowser.open("https://ollama.com/download/windows")
+            if WINDOWS:
+                webbrowser.open("https://ollama.com/download/windows")
+            else:  # Ollama's official one-line installer; copy it so the user can paste it in a terminal
+                cmd = "curl -fsSL https://ollama.com/install.sh | sh"
+                self.root.clipboard_clear()
+                self.root.clipboard_append(cmd)
+                self.set_status(f"⧉ Copied. Paste in a terminal and press Enter:  {cmd}", AMBER)
+                webbrowser.open("https://ollama.com/download/linux")
             self._show_setup("recheck")
         elif self.setup_mode == "recheck":
             self.setup.pack_forget()
@@ -776,7 +810,8 @@ class CommandBar:
             self.hide()
 
     def _hint_text(self) -> str:
-        return f"{self._hk()}  summon   ·   ↑↓  select   ·   Esc  hide"
+        key = self._hk() if WINDOWS else "Ctrl+Alt+Space"
+        return f"{key}  summon   ·   ↑↓  select   ·   Esc  hide"
 
     # ================= results list =================
     def show_results(self, items):
