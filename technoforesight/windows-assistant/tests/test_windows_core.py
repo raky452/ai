@@ -300,3 +300,26 @@ def test_indic_model_default_and_fallback():
     assert bar._model_for_language() == "gemma4:e4b"
     bar.llm.language = "English"
     assert bar._model_for_language() == "qwen3:4b-instruct"
+
+
+def test_script_filter_drops_leaked_foreign_tokens():
+    from tf_assistant.llm import ScriptFilter
+    src = "మా ప్రాంతంలో贵 సంస్థ యొక్క. ప్రజలు మీ dịch vụని అమితంగా\nUPI అంటే Unified Payments Interface 12,500"
+    want = "మా ప్రాంతంలో సంస్థ యొక్క. ప్రజలు మీ అమితంగా\nUPI అంటే Unified Payments Interface 12,500"
+    for size in (1, 2, 5, 200):
+        f = ScriptFilter()
+        out = "".join(f.feed(src[i:i + size]) for i in range(0, len(src), size)) + f.flush()
+        assert out == want, size
+
+
+def test_chat_stream_filters_only_indian_languages(monkeypatch):
+    import io
+    import json as _json
+
+    from tf_assistant.llm import OllamaClient
+    events = [{"message": {"content": "నమస్తే贵 **బాగున్నారా**"}}, {"message": {"content": ""}, "done": True}]
+    body = "\n".join(_json.dumps(e) for e in events).encode()
+    for lang, want in (("Telugu", "నమస్తే బాగున్నారా"), ("English", "నమస్తే贵 బాగున్నారా")):
+        c = OllamaClient("http://x", "m", "A", language=lang)
+        monkeypatch.setattr(c, "_request", lambda *a, **k: io.BytesIO(body))
+        assert "".join(c.chat_stream("hi")) == want, lang

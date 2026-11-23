@@ -5,6 +5,7 @@ import com.technoforesight.assistant.ai.Command
 import com.technoforesight.assistant.ai.DEFAULT_CONNECTORS
 import com.technoforesight.assistant.ai.LANGUAGES
 import com.technoforesight.assistant.ai.MarkdownCleaner
+import com.technoforesight.assistant.ai.ScriptFilter
 import com.technoforesight.assistant.ai.ThinkFilter
 import com.technoforesight.assistant.ai.languageInstruction
 import com.technoforesight.assistant.ai.route
@@ -75,5 +76,14 @@ class CoreTest {
         assertTrue(t.contains("Telugu script") && t.contains("Vietnamese") && t.contains("Markdown"))
         assertTrue(languageInstruction("English").startsWith("Reply in English"))
         assertEquals(12, LANGUAGES.size)
+    }
+
+    @Test fun scriptFilterDropsLeakedForeignTokens() {
+        val src = "మా ప్రాంతంలో贵 సంస్థ యొక్క. ప్రజలు మీ dịch vụని అమితంగా\nUPI అంటే Unified Payments Interface 12,500"
+        val want = "మా ప్రాంతంలో సంస్థ యొక్క. ప్రజలు మీ అమితంగా\nUPI అంటే Unified Payments Interface 12,500"
+        for (size in listOf(1, 2, 5, 200)) {
+            val f = ScriptFilter()
+            assertEquals("chunk size $size", want, src.chunked(size).joinToString("") { f.feed(it) } + f.flush())
+        }
     }
 }

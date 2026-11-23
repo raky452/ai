@@ -70,6 +70,56 @@ def join_stream(pieces) -> str:
     return "".join(out)
 
 
+# Small multilingual models occasionally leak a token from an unrelated language into Indian-language
+# text (seen with Gemma 4: "贵" in Telugu, "dịch vụ" in Telugu). These ranges never belong in an
+# answer in English or an Indian language.
+_DROP_CHARS = ((0x2E80, 0x9FFF), (0xF900, 0xFAFF), (0xAC00, 0xD7AF), (0x1100, 0x11FF), (0x0E00, 0x0E7F),
+               (0xFF00, 0xFFEF))                       # CJK, kana, Hangul, Thai, full-width forms
+_DROP_WORDS = ((0x1E00, 0x1EFF), (0x0400, 0x04FF))     # Vietnamese-only Latin letters, Cyrillic
+
+
+def _in(ranges, ch: str) -> bool:
+    o = ord(ch)
+    return any(a <= o <= b for a, b in ranges)
+
+
+class ScriptFilter:
+    """Streaming filter for Indian-language answers: drops stray CJK/Thai characters and whole words
+    written in Vietnamese or Cyrillic letters. Holds back the current word until it ends."""
+
+    def __init__(self) -> None:
+        self._word = ""
+        self._skip_space = False   # a dropped word shouldn't leave a double space behind
+
+    def _clean_word(self, word: str) -> str:
+        if any(_in(_DROP_WORDS, c) for c in word):
+            return ""
+        return "".join(c for c in word if not _in(_DROP_CHARS, c))
+
+    def feed(self, chunk: str) -> str:
+        out: list[str] = []
+        for ch in chunk:
+            if ch.isspace():
+                clean = self._clean_word(self._word)
+                if self._word and not clean:
+                    self._skip_space = True
+                elif clean:
+                    self._skip_space = False
+                out.append(clean)
+                self._word = ""
+                if ch == " " and self._skip_space:
+                    continue
+                self._skip_space = False
+                out.append(ch)
+            else:
+                self._word += ch
+        return "".join(out)
+
+    def flush(self) -> str:
+        word, self._word = self._word, ""
+        return self._clean_word(word)
+
+
 class MarkdownCleaner:
     """Streaming clean-up of Markdown the answer card can't render: removes ** and __ bold markers,
     leading # headings and turns "* " / "- " bullets into "• ". Holds back at most a few characters
@@ -278,6 +328,7 @@ class OllamaClient:
             resp = self._request("/api/chat", self._chat_payload(messages, think=None))
         flt = ThinkFilter()
         md = MarkdownCleaner()
+        script = ScriptFilter() if self.language in LANGUAGE_BY_NAME and self.language != "English" else None
         with resp:
             for line in resp:
                 if cancel is not None and cancel.is_set():
@@ -290,14 +341,18 @@ class OllamaClient:
                 for piece in flt.feed(event.get("message", {}).get("content", "")):
                     if piece == RESET:
                         md = MarkdownCleaner()
+                        script = ScriptFilter() if script else None
                         yield piece
                     else:
-                        clean = md.feed(piece)
+                        clean = md.feed(script.feed(piece) if script else piece)
                         if clean:
                             yield clean
                 if event.get("done"):
                     break
-        tail = md.feed(flt.flush() or "") + md.flush()
+        rest = flt.flush() or ""
+        if script:
+            rest = script.feed(rest) + script.flush()
+        tail = md.feed(rest) + md.flush()
         if tail:
             yield tail
 

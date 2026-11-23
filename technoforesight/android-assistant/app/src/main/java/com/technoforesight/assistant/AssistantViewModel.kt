@@ -17,6 +17,7 @@ import com.technoforesight.assistant.ai.MarkdownCleaner
 import com.technoforesight.assistant.ai.ModelStore
 import com.technoforesight.assistant.ai.OllamaEngine
 import com.technoforesight.assistant.ai.OnDeviceEngine
+import com.technoforesight.assistant.ai.ScriptFilter
 import com.technoforesight.assistant.ai.languageByName
 import com.technoforesight.assistant.ai.route
 import com.technoforesight.assistant.ai.systemPrompt
@@ -253,12 +254,13 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         val system = systemPrompt("TechnoForesight Assistant", language.name)
         job = viewModelScope.launch {
             val cleaner = MarkdownCleaner()
+            val script = if (language.name != "English") ScriptFilter() else null
             try {
                 e.stream(system, prompt).collect { piece ->
                     if (!streaming) { streaming = true; say("") }
-                    answer += cleaner.feed(piece)
+                    answer += cleaner.feed(script?.feed(piece) ?: piece)
                 }
-                answer += cleaner.flush()
+                answer += cleaner.feed(script?.flush() ?: "") + cleaner.flush()
                 say(if (answer.isBlank()) "⚠ The model returned an empty answer. Try again." else "", Tone.INFO)
             } catch (c: CancellationException) {
                 throw c
