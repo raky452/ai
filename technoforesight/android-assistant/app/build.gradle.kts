@@ -17,8 +17,8 @@ android {
         applicationId = "in.technoforesight.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 303
-        versionName = "0.3.3"
+        versionCode = 304
+        versionName = "0.3.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Gemma 4 E2B (Apache-2.0) in Google's LiteRT-LM format, downloaded once on first use.

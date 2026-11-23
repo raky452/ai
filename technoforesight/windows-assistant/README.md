@@ -1,6 +1,6 @@
 # TechnoForesight Assistant for Windows
 
-**Latest release: v0.3.3** · [Download](https://technoforesight.in/assistant) · [Releases](https://github.com/raky452/ai/releases) · Ad: [Telugu](https://youtu.be/6oqI3PJZu7c) / [English](https://youtu.be/US3ozZIHie0)
+**Latest release: v0.3.4** · [Download](https://technoforesight.in/assistant) · [Releases](https://github.com/raky452/ai/releases) · Ad: [Telugu](https://youtu.be/6oqI3PJZu7c) / [English](https://youtu.be/US3ozZIHie0)
 
 An **offline AI command bar** for Windows 10/11. Press **Alt+Space** from anywhere and type:
 
@@ -102,6 +102,7 @@ tests/        router, apps, files, hotkey, languages, connectors, Ollama client,
 |---|---|
 | 0.3.2 | `use model …` command; optional separate model for Indian-language answers (`indic_model`) |
 | 0.3.3 | Gemma 4 (`gemma4:e4b`) is the default model for Indian languages: offered as a one-time download when you pick one, with the main model answering until then. Indian-language answers stay in one script; Markdown symbols (`**`, `#`) are cleaned out of answers |
+| 0.3.4 | Linux version from the same code (see `../linux-assistant`); Ctrl+A selects all; stray foreign-script tokens (e.g. a Chinese character inside Telugu) are filtered out of Indian-language answers |
 | 0.3.1 | Qwen-recommended sampling and repetition penalties (no more looping Telugu answers) |
 | 0.3.0 | Connectors: one word opens your sites; `add/remove connector`; Connectors chip |
 | 0.2.0 | 12 response languages; new neon UI; answer card that fits its content |
