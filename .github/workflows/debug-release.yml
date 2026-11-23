@@ -1,0 +1,16 @@
+name: Debug release permission
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version | head -1
+          echo "--- draft release (no tag yet)"; gh api -X POST repos/${{ github.repository }}/releases -f tag_name=probe-v0 -f target_commitish=${{ github.sha }} -F draft=true --jq .id || true
+          echo "--- release create CLI"; gh release create probe-v1 --repo ${{ github.repository }} --target ${{ github.sha }} --draft --notes x || true
+          echo "--- with latest=false"; gh release create probe-v2 --repo ${{ github.repository }} --target ${{ github.sha }} --draft --latest=false --notes x || true
+          for t in probe-v0 probe-v1 probe-v2; do gh release delete $t --repo ${{ github.repository }} --yes --cleanup-tag 2>/dev/null || true; done
