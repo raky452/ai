@@ -165,7 +165,7 @@ private fun LanguageChip(vm: AssistantViewModel) {
             LANGUAGES.forEach { lang ->
                 DropdownMenuItem(
                     text = { Text("${lang.native}   ·   ${lang.name}", color = if (lang == vm.language) CYAN else FG) },
-                    onClick = { vm.setLanguage(lang); open = false },
+                    onClick = { vm.chooseLanguage(lang); open = false },
                 )
             }
         }

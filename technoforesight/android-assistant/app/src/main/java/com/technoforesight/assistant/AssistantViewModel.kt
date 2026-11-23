@@ -168,7 +168,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         say("Stopped.", Tone.INFO)
     }
 
-    fun setLanguage(lang: Language) {
+    fun chooseLanguage(lang: Language) {
         language = lang
         prefs.language = lang.name
         say("✔ I'll answer in ${lang.native} from now on.", Tone.OK)
@@ -209,7 +209,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
                 input = ""
             }
             Command.Summarise -> { input = ""; _events.tryEmit("pick_document") }
-            is Command.SetLanguage -> { setLanguage(cmd.language); input = "" }
+            is Command.SetLanguage -> { chooseLanguage(cmd.language); input = "" }
             is Command.UsePc -> {
                 prefs.engine = "pc"; prefs.pcUrl = cmd.url; input = ""
                 startEngine()
