@@ -67,7 +67,7 @@ jobs:
       - name: Free disk space
         if: github.event_name == 'push' || inputs.e2e
         working-directory: .
-        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" && df -h /
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup && df -h /   # keep the tool cache: Java lives there
       - name: Ollama on the host (for "use my PC" mode) and the on-device model file
         if: github.event_name == 'push' || inputs.e2e
         working-directory: .
