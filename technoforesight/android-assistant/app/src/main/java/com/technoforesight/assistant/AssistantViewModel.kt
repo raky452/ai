@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 enum class Tone { INFO, OK, WARN, ERROR }
 enum class EngineState(val label: String) {
     STARTING("STARTING"), NEEDS_MODEL("NO MODEL"), DOWNLOADING("DOWNLOADING"), LOADING("LOADING"),
-    READY("LOCAL · OFFLINE"), PC_READY("YOUR PC · PRIVATE"), ERROR("ENGINE ERROR")
+    READY("LOCAL AI"), PC_READY("YOUR PC"), ERROR("ENGINE ERROR")
 }
 
 class AssistantViewModel(app: Application) : AndroidViewModel(app) {

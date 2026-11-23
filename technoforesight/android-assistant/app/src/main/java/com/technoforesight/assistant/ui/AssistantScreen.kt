@@ -52,11 +52,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.technoforesight.assistant.AssistantViewModel
@@ -122,7 +124,7 @@ private fun Header(vm: AssistantViewModel) {
             }
         }
         Spacer(Modifier.width(10.dp))
-        Text("TechnoForesight", color = FG, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text("TechnoForesight", color = FG, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, softWrap = false)
         Spacer(Modifier.width(8.dp))
         Text("AI", color = BG, fontWeight = FontWeight.Bold, fontSize = 11.sp,
             modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(NEON).padding(horizontal = 7.dp, vertical = 2.dp))
@@ -149,7 +151,7 @@ private fun EnginePill(vm: AssistantViewModel) {
     ) {
         Box(Modifier.size(7.dp).alpha(pulse).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
-        Text(vm.engineState.label, color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        Text(vm.engineState.label, color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
     }
 }
 
@@ -174,6 +176,8 @@ private fun LanguageChip(vm: AssistantViewModel) {
 
 @Composable
 private fun InputBar(vm: AssistantViewModel) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val send = { keyboard?.hide(); vm.submit() }   // hide the keyboard so the answer has the screen
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SURFACE)
             .border(BorderStroke(1.5.dp, if (vm.busy) NEON else Brush.horizontalGradient(listOf(LINE, LINE))), RoundedCornerShape(16.dp))
@@ -189,7 +193,7 @@ private fun InputBar(vm: AssistantViewModel) {
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = FG, fontSize = 18.sp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { vm.submit() }),
+            keyboardActions = KeyboardActions(onSend = { send() }),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = CYAN,
@@ -198,7 +202,7 @@ private fun InputBar(vm: AssistantViewModel) {
         val label = if (vm.busy) "■" else "➤"
         Text(label, color = BG, fontWeight = FontWeight.Bold, fontSize = 16.sp,
             modifier = Modifier.testTag("send").padding(6.dp).clip(RoundedCornerShape(12.dp)).background(NEON)
-                .clickable { if (vm.busy) vm.stop() else vm.submit() }.padding(horizontal = 14.dp, vertical = 10.dp))
+                .clickable { if (vm.busy) vm.stop() else send() }.padding(horizontal = 14.dp, vertical = 10.dp))
     }
 }
 
@@ -297,8 +301,9 @@ private fun AnswerCard(vm: AssistantViewModel, modifier: Modifier) {
 @Composable
 private fun Footer(vm: AssistantViewModel) {
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("⚡ ${vm.engineLabel}", color = MUTED, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-        Spacer(Modifier.weight(1f))
-        Text("technoforesight.in", color = VIOLET, fontSize = 11.sp)
+        Text("⚡ ${vm.engineLabel}", color = MUTED, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        Text("technoforesight.in", color = VIOLET, fontSize = 11.sp, maxLines = 1, softWrap = false)
     }
 }
