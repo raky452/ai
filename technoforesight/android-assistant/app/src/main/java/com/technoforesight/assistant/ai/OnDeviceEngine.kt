@@ -40,6 +40,15 @@ class OnDeviceEngine(
                     val e = Engine(EngineConfig(modelPath = modelFile.absolutePath, backend = backend(),
                                                 cacheDir = context.cacheDir.path))
                     e.initialize()
+                    // Some phones load the GPU backend but can't run it (no OpenCL driver): the failure only
+                    // shows up when generating. Generate one short reply now so we fall back to the CPU here.
+                    try {
+                        e.createConversation(ConversationConfig(samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0)))
+                            .use { it.sendMessage("Hi") }
+                    } catch (t: Throwable) {
+                        e.close()
+                        throw t
+                    }
                     engine = e
                     backendName = name
                     return@withContext null
