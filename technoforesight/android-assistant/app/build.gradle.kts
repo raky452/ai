@@ -88,7 +88,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // On-device AI: Google's LiteRT-LM runtime (runs Gemma 4 .litertlm models offline).
-    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.19.1")
     // PDF text extraction for "Summarise"
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
