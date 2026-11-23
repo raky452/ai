@@ -26,6 +26,14 @@ run() {  # $1 = label, rest = am instrument args
   fi
 }
 
+# Push the model first, while the emulator is fresh (pushing after the PC test can stall on memory)
+echo "=== pushing the on-device model ==="
+timeout 600 adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm || { echo "FAIL  model push"; fail=1; }
+timeout 600 adb shell "run-as $APP sh -c 'mkdir -p files/models && cp /data/local/tmp/model.litertlm files/models/gemma-4-E2B-it.litertlm'"
+adb shell rm /data/local/tmp/model.litertlm
+size=$(adb shell "run-as $APP stat -c %s files/models/gemma-4-E2B-it.litertlm" | tr -d '\r')
+want=$(stat -c %s "$RUNNER_TEMP/gemma.litertlm")
+echo "model on device: $size bytes (expected $want)"; [ "$size" = "$want" ] || { echo "FAIL  model push"; fail=1; }
 run pc-mode -e class "$TEST#pcEngine_teluguAndEnglishAnswers,$TEST#connectorsWithoutAi" \
   -e pcUrl http://10.0.2.2:11434 -e pcModel gemma4:e4b
 
@@ -35,11 +43,6 @@ timeout 60 sudo systemctl stop ollama 2>/dev/null || true
 adb shell free -m 2>/dev/null | head -3
 df -h / | tail -1
 
-echo "=== pushing the on-device model ==="
-timeout 600 adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm || { echo "FAIL  model push"; fail=1; }
-timeout 600 adb shell "run-as $APP sh -c 'mkdir -p files/models && cp /data/local/tmp/model.litertlm files/models/gemma-4-E2B-it.litertlm'"
-adb shell rm /data/local/tmp/model.litertlm
-adb shell "run-as $APP ls -l files/models"
 run on-device -e class "$TEST#onDevice_teluguAnswer" -e onDevice true
 
 adb pull "/sdcard/Android/data/$APP/files/e2e" "$OUT/" || true
