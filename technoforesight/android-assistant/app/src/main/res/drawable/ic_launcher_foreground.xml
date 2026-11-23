@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Neon diamond mark, same as the desktop app's logo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M54,30 L78,54 L54,78 L30,54 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="30" android:startY="30" android:endX="78" android:endY="78">
+                <item android:offset="0" android:color="#22D3EE" />
+                <item android:offset="0.5" android:color="#8B5CF6" />
+                <item android:offset="1" android:color="#EC4899" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#0A0F1E" android:pathData="M54,44 L64,54 L54,64 L44,54 Z" />
+</vector>

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import math
+import os
 import queue
 import sys
 import threading
@@ -276,6 +277,9 @@ class CommandBar:
         self.entry.bind("<Return>", self.on_submit)
         self.entry.bind("<KeyRelease>", self.on_key_release)
         self.entry.bind("<Down>", self.focus_results)
+        # Ctrl+A = select all everywhere (Tk on Linux otherwise jumps to the start of the line)
+        self.entry.bind("<Control-a>", self._select_all)
+        self.entry.bind("<Control-A>", self._select_all)
         self.entry.bind("<FocusIn>", lambda e: (self._clear_placeholder(), self.input_frame.configure(highlightbackground=CYAN)))
         self.entry.bind("<FocusOut>", lambda e: self.input_frame.configure(highlightbackground=LINE))
         self.placeholder = "Ask anything, or try: open chrome · find files invoice · yt telugu songs"
@@ -881,7 +885,16 @@ class CommandBar:
         self.answer.configure(state="disabled")
         self._fit_answer()
 
+    def _select_all(self, _event=None):
+        self.entry.select_range(0, "end")
+        self.entry.icursor("end")
+        return "break"
+
     def _answer_done(self):
+        log = os.environ.get("TF_ANSWER_LOG")  # end-to-end tests read finished answers from this file
+        if log and self.answer_text.strip():
+            with open(log, "a", encoding="utf-8") as fh:
+                fh.write(self.answer_text.strip() + "\n=====\n")
         if self.answer.tag_ranges("cursor"):
             self.answer.configure(state="normal")
             self.answer.delete("cursor.first", "cursor.last")

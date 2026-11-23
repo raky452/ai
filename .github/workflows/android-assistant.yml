@@ -1,0 +1,113 @@
+name: Build Android Assistant
+
+on:
+  push:
+    branches: [main]
+    paths: ['technoforesight/android-assistant/**', '.github/workflows/android-assistant.yml']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a GitHub Release (tag android-v<version>), only if the end-to-end test passes'
+        type: boolean
+        default: false
+      e2e:
+        description: 'Run the emulator end-to-end test with real AI models (about 40 minutes)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: technoforesight/android-assistant
+    env:
+      APP_ID: in.technoforesight.assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Release signing key (from repository secrets, if set)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "TF_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "TF_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "SIGNED=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret: release APK is debug-signed (test only)."
+          fi
+      - name: Unit tests and build
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest assembleRelease
+          ./gradlew --no-daemon -q :app:dependencies --configuration releaseRuntimeClasspath | grep -i litertlm | head -3
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/TechnoForesightAssistant-Android.apk
+          ls -l dist app/build/outputs/apk/*/*.apk
+          unzip -l dist/TechnoForesightAssistant-Android.apk | grep -E "lib/.*\.so" | awk '{print $4}' | sed 's#/[^/]*$##' | sort | uniq -c
+
+      # ---------- end-to-end on an emulator ----------
+      - name: Enable KVM
+        if: github.event_name == 'push' || inputs.e2e
+        working-directory: .
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Free disk space
+        if: github.event_name == 'push' || inputs.e2e
+        working-directory: .
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" && df -h /
+      - name: Ollama on the host (for "use my PC" mode) and the on-device model file
+        if: github.event_name == 'push' || inputs.e2e
+        working-directory: .
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for i in $(seq 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull gemma4:e4b
+          curl -fL --retry 3 -o "$RUNNER_TEMP/gemma.litertlm" \
+            https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
+          ls -l "$RUNNER_TEMP/gemma.litertlm"
+      - name: Emulator end-to-end test
+        if: github.event_name == 'push' || inputs.e2e
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 6144M
+          disk-size: 12G
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144
+          working-directory: technoforesight/android-assistant
+          script: bash ci/emulator-e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-e2e
+          path: technoforesight/android-assistant/e2e-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TechnoForesightAssistant-android
+          path: technoforesight/android-assistant/dist/*.apk
+      - name: Publish GitHub Release
+        if: inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${SIGNED:-}" != "true" ]; then echo "::error::Refusing to publish a debug-signed APK. Add the ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD secrets."; exit 1; fi
+          version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp dist/TechnoForesightAssistant-Android.apk "dist/TechnoForesightAssistant-Android-$version.apk"
+          # --latest=false keeps the Windows release as "latest", so the website's Windows links never move
+          gh release create "android-v$version" dist/*.apk --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --latest=false --title "TechnoForesight Assistant for Android v$version" \
+            --notes "Offline AI assistant for Android 8+. Download the APK on your phone and open it (allow installing from your browser when asked). On first use it downloads the free Gemma 4 model (~2.6 GB) once; after that it works offline. Full guide: https://technoforesight.in/assistant-android"

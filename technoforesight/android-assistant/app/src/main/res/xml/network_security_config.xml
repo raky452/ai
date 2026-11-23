@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Use my PC" talks to Ollama on the home network (e.g. http://192.168.1.20:11434), which is plain
+     HTTP on a private address that can't be listed in advance. The model download itself is HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

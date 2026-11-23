@@ -40,6 +40,7 @@ export DISPLAY=:99
 Xvfb :99 -screen 0 1366x768x24 >/dev/null 2>&1 & XVFB=$!
 sleep 2
 shot() { import -window root "$OUT/$1.png"; echo "===PNG $1.png==="; base64 -w 8000 "$OUT/$1.png" | sed 's/^/B64:/'; echo "===END==="; }
+export TF_ANSWER_LOG="$OUT/window_answers.txt"; : > "$TF_ANSWER_LOG"
 $APP & PID=$!
 for _ in $(seq 60); do WID=$(xdotool search --class TechnoForesightAssistant 2>/dev/null | head -1); [ -n "$WID" ] && break; sleep 1; done
 check "window opens" '[ -n "${WID:-}" ]'
@@ -48,9 +49,14 @@ $APP; sleep 1
 check "second launch hands over to the running copy" '[ "$(pgrep -fc "python3 -m tf_assistant$")" = "1" ]'
 xdotool windowactivate --sync "$WID" 2>/dev/null || xdotool windowfocus "$WID"
 xdotool type --delay 40 "explain what UPI is in 3 simple lines"; xdotool key Return
-sleep 50; shot ui_telugu_upi
+waitans() { for _ in $(seq "$2"); do [ "$(grep -c '^=====$' "$TF_ANSWER_LOG")" -ge "$1" ] && return 0; sleep 2; done; return 1; }
+waitans 1 90; sleep 1; shot ui_telugu_upi
+sed -n '1,/^=====$/p' "$TF_ANSWER_LOG" | sed '$d' > "$OUT/win_te.txt"; cat "$OUT/win_te.txt"
+check "window: Telugu answer is clean Telugu" 'python3 "$HERE/check_indic.py" "$OUT/win_te.txt" telugu'
 xdotool key ctrl+a; xdotool type --delay 20 "summarise /tmp/Sample-Fee-Notice.pdf"; xdotool key Return
-sleep 50; shot ui_pdf_summary
+waitans 2 120; sleep 1; shot ui_pdf_summary
+awk 'BEGIN{n=0} /^=====$/{n++; next} n==1' "$TF_ANSWER_LOG" > "$OUT/win_pdf.txt"; cat "$OUT/win_pdf.txt"
+check "window: Ctrl+A replaced the text and the PDF summary is in Telugu" 'python3 "$HERE/check_indic.py" "$OUT/win_pdf.txt" telugu && grep -Eq "12,?500|15" "$OUT/win_pdf.txt"'
 check "app still running after the session" 'kill -0 $PID'
 kill $PID $XVFB 2>/dev/null
 exit $fail
