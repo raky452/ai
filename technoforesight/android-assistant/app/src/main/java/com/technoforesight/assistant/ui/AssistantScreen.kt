@@ -130,8 +130,6 @@ private fun Header(vm: AssistantViewModel) {
             modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(NEON).padding(horizontal = 7.dp, vertical = 2.dp))
         Spacer(Modifier.weight(1f))
         EnginePill(vm)
-        Spacer(Modifier.width(8.dp))
-        LanguageChip(vm)
     }
 }
 
@@ -208,7 +206,9 @@ private fun InputBar(vm: AssistantViewModel) {
 
 @Composable
 private fun Chips(vm: AssistantViewModel) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        LanguageChip(vm)   // first chip, so it's reachable on every screen width
         CHIPS.forEach { (label, fill) ->
             Text(label, color = FG, fontSize = 13.sp,
                 modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(SURFACE)
