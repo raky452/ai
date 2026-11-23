@@ -28,11 +28,18 @@ run() {  # $1 = label, rest = am instrument args
 
 # Push the model first, while the emulator is fresh (pushing after the PC test can stall on memory)
 echo "=== pushing the on-device model ==="
-timeout 600 adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm || { echo "FAIL  model push"; fail=1; }
+want=$(stat -c %s "$RUNNER_TEMP/gemma.litertlm")
+adb shell df -h /data | tail -1
+for attempt in 1 2 3; do
+  sleep 20   # let the freshly booted emulator settle
+  timeout 600 adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm
+  got=$(adb shell stat -c %s /data/local/tmp/model.litertlm 2>/dev/null | tr -d '\r')
+  echo "push attempt $attempt: $got of $want bytes"
+  [ "$got" = "$want" ] && break
+done
 timeout 600 adb shell "run-as $APP sh -c 'mkdir -p files/models && cp /data/local/tmp/model.litertlm files/models/gemma-4-E2B-it.litertlm'"
 adb shell rm /data/local/tmp/model.litertlm
 size=$(adb shell "run-as $APP stat -c %s files/models/gemma-4-E2B-it.litertlm" | tr -d '\r')
-want=$(stat -c %s "$RUNNER_TEMP/gemma.litertlm")
 echo "model on device: $size bytes (expected $want)"; [ "$size" = "$want" ] || { echo "FAIL  model push"; fail=1; }
 run pc-mode -e class "$TEST#pcEngine_teluguAndEnglishAnswers,$TEST#connectorsWithoutAi" \
   -e pcUrl http://10.0.2.2:11434 -e pcModel gemma4:e4b
