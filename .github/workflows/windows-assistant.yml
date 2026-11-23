@@ -11,6 +11,10 @@ on:
         description: 'Publish a GitHub Release (tag win-v<version>)'
         type: boolean
         default: false
+      prerelease:
+        description: 'Publish as a pre-release for testing (the website keeps serving the current latest)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -57,6 +61,9 @@ jobs:
           $version = (python -c "import tf_assistant; print(tf_assistant.__version__)").Trim()
           $tag = "win-v$version"
           $files = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName }
-          gh release create $tag $files --repo "${{ github.repository }}" --target "${{ github.sha }}" --latest `
+          # Pre-releases are for testing: the website's releases/latest links keep pointing at the old version
+          # until the tested release is promoted (gh release edit <tag> --prerelease=false --latest).
+          $flags = if ("${{ inputs.prerelease }}" -eq "true") { @("--prerelease", "--latest=false") } else { @("--latest") }
+          gh release create $tag $files --repo "${{ github.repository }}" --target "${{ github.sha }}" @flags `
             --title "TechnoForesight Assistant for Windows v$version" `
             --notes "Offline AI command bar for Windows. Download the Setup .exe, run it, then press Alt+Space. Needs Ollama (free) for the AI: https://ollama.com/download/windows. Full guide: https://technoforesight.in/assistant"
