@@ -5,6 +5,7 @@
 set -uo pipefail
 APP=in.technoforesight.assistant
 RUNNER=$APP.test/androidx.test.runner.AndroidJUnitRunner
+TEST=com.technoforesight.assistant.EndToEndTest   # code package differs from the app id
 OUT=e2e-out
 mkdir -p "$OUT"
 fail=0
@@ -25,7 +26,7 @@ run() {  # $1 = label, rest = am instrument args
   fi
 }
 
-run pc-mode -e class "$APP.EndToEndTest#pcEngine_teluguAndEnglishAnswers,$APP.EndToEndTest#connectorsWithoutAi" \
+run pc-mode -e class "$TEST#pcEngine_teluguAndEnglishAnswers,$TEST#connectorsWithoutAi" \
   -e pcUrl http://10.0.2.2:11434 -e pcModel gemma4:e4b
 
 # Free the host's memory for the on-device run
@@ -37,7 +38,7 @@ adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm
 adb shell "run-as $APP sh -c 'mkdir -p files/models && cp /data/local/tmp/model.litertlm files/models/gemma-4-E2B-it.litertlm'"
 adb shell rm /data/local/tmp/model.litertlm
 adb shell "run-as $APP ls -l files/models"
-run on-device -e class "$APP.EndToEndTest#onDevice_teluguAnswer" -e onDevice true
+run on-device -e class "$TEST#onDevice_teluguAnswer" -e onDevice true
 
 adb pull "/sdcard/Android/data/$APP/files/e2e" "$OUT/" || true
 adb logcat -d -t 3000 > "$OUT/logcat.txt" || true
