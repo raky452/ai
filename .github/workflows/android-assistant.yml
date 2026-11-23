@@ -6,10 +6,6 @@ on:
     paths: ['technoforesight/android-assistant/**', '.github/workflows/android-assistant.yml']
   workflow_dispatch:
     inputs:
-      release:
-        description: 'Publish a GitHub Release (tag android-v<version>), only if the end-to-end test passes'
-        type: boolean
-        default: false
       e2e:
         description: 'Run the emulator end-to-end test with real AI models (about 40 minutes)'
         type: boolean
@@ -54,6 +50,10 @@ jobs:
           ./gradlew --no-daemon -q :app:dependencies --configuration releaseRuntimeClasspath | grep -i litertlm | head -3
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk dist/TechnoForesightAssistant-Android.apk
+          version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp dist/TechnoForesightAssistant-Android.apk "dist/TechnoForesightAssistant-Android-$version.apk"
+          # "Publish tested release" refuses artifacts carrying the UNSIGNED marker
+          [ "${SIGNED:-}" = true ] || echo "Debug-signed test build, do not publish" > dist/UNSIGNED.txt
           ls -l dist app/build/outputs/apk/*/*.apk
           unzip -l dist/TechnoForesightAssistant-Android.apk | grep -E "lib/.*\.so" | awk '{print $4}' | sed 's#/[^/]*$##' | sort | uniq -c
 
@@ -98,16 +98,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: TechnoForesightAssistant-android
-          path: technoforesight/android-assistant/dist/*.apk
-      - name: Publish GitHub Release
-        if: inputs.release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${SIGNED:-}" != "true" ]; then echo "::error::Refusing to publish a debug-signed APK. Add the ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD secrets."; exit 1; fi
-          version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
-          cp dist/TechnoForesightAssistant-Android.apk "dist/TechnoForesightAssistant-Android-$version.apk"
-          # --latest=false keeps the Windows release as "latest", so the website's Windows links never move
-          gh release create "android-v$version" dist/*.apk --repo "${{ github.repository }}" --target "${{ github.sha }}" \
-            --latest=false --title "TechnoForesight Assistant for Android v$version" \
-            --notes "Offline AI assistant for Android 8+. Download the APK on your phone and open it (allow installing from your browser when asked). On first use it downloads the free Gemma 4 model (~2.6 GB) once; after that it works offline. Full guide: https://technoforesight.in/assistant-android"
+          path: technoforesight/android-assistant/dist/*

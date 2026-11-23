@@ -6,10 +6,6 @@ on:
     paths: ['technoforesight/windows-assistant/**', 'technoforesight/linux-assistant/**', '.github/workflows/linux-assistant.yml']
   workflow_dispatch:
     inputs:
-      release:
-        description: 'Publish a GitHub Release (tag linux-v<version>), only if the end-to-end test passes'
-        type: boolean
-        default: false
       e2e:
         description: 'Run the end-to-end test with real AI models (about 15 minutes)'
         type: boolean
@@ -53,18 +49,8 @@ jobs:
         with:
           name: linux-e2e
           path: e2e-out/
+      # To publish: run "Publish tested release" with this run's ID (it only accepts passed runs).
       - uses: actions/upload-artifact@v4
         with:
           name: TechnoForesightAssistant-linux
           path: technoforesight/linux-assistant/dist/*
-      - name: Publish GitHub Release
-        if: inputs.release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        working-directory: technoforesight/linux-assistant
-        run: |
-          version=$(cd ../windows-assistant && python3 -c 'import tf_assistant; print(tf_assistant.__version__)')
-          # --latest=false keeps the Windows release as "latest", so the website's Windows links never move
-          gh release create "linux-v$version" dist/* --repo "${{ github.repository }}" --target "${{ github.sha }}" \
-            --latest=false --title "TechnoForesight Assistant for Linux v$version" \
-            --notes "Offline AI command bar for Linux. Ubuntu/Debian/Mint: download the .deb and open it (or: sudo apt install ./TechnoForesightAssistant-Linux.deb). Other distros: extract the .tar.gz and run ./install.sh. Needs Ollama (free) for the AI. Full guide: https://technoforesight.in/assistant-linux"

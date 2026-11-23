@@ -1,0 +1,56 @@
+name: Publish tested release
+
+# Publishes the exact files a passed build/test run produced, e.g. the Linux packages that
+# linux-assistant.yml installed and tested end to end. Linux/Android releases never become "latest",
+# so the website's Windows links (releases/latest/download/...) never move.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID of the passed build run whose files to publish'
+        required: true
+      artifact:
+        description: 'Artifact name in that run (TechnoForesightAssistant-linux or TechnoForesightAssistant-android)'
+        required: true
+      tag:
+        description: 'Release tag, e.g. linux-v0.3.4'
+        required: true
+      title:
+        description: 'Release title'
+        required: true
+      notes:
+        description: 'Release notes'
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the source run passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$(gh run view "${{ inputs.run_id }}" --repo "${{ github.repository }}" --json conclusion,headSha --jq '.conclusion+" "+.headSha')
+          echo "Source run: $state"
+          [ "${state%% *}" = success ] || { echo "::error::Run ${{ inputs.run_id }} did not pass"; exit 1; }
+          echo "SHA=${state##* }" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: files
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l files
+          if [ -f files/UNSIGNED.txt ]; then
+            echo "::error::This APK is debug-signed. Add the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets and rebuild."; exit 1
+          fi
+          gh release create "${{ inputs.tag }}" files/* --repo "${{ github.repository }}" --target "$SHA" \
+            --latest=false --title "${{ inputs.title }}" --notes "${{ inputs.notes }}"
