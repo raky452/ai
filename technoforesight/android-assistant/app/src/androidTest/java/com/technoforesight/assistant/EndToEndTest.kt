@@ -2,6 +2,7 @@ package com.technoforesight.assistant
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -38,9 +39,12 @@ class EndToEndTest {
         args.getString("pcModel")?.let { p.pcModel = it }
     }
 
+    /** Text of the tagged node and everything inside it (e.g. the engine pill is a Row of a dot and a label). */
     private fun text(tag: String): String = try {
-        compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
-            .config.getOrElse(SemanticsProperties.Text) { emptyList() }.joinToString("") { it.text }
+        fun collect(node: SemanticsNode): String =
+            node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.joinToString("") { it.text } +
+                node.children.joinToString("") { collect(it) }
+        collect(compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode())
     } catch (e: AssertionError) { "" }
 
     private fun waitFor(what: String, timeoutMs: Long, cond: () -> Boolean) {

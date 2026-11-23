@@ -18,7 +18,7 @@ adb install -r -g app/build/outputs/apk/androidTest/debug/app-debug-androidTest.
 run() {  # $1 = label, rest = am instrument args
   local label=$1; shift
   echo "=== $label ==="
-  adb shell am instrument -w "$@" "$RUNNER" | tee "$OUT/$label.txt"
+  timeout 1800 adb shell am instrument -w "$@" "$RUNNER" | tee "$OUT/$label.txt"
   if grep -q "FAILURES!!!\|INSTRUMENTATION_FAILED\|Process crashed" "$OUT/$label.txt" || ! grep -q "^OK (" "$OUT/$label.txt"; then
     echo "FAIL  $label"; fail=1
   else
@@ -30,12 +30,14 @@ run pc-mode -e class "$TEST#pcEngine_teluguAndEnglishAnswers,$TEST#connectorsWit
   -e pcUrl http://10.0.2.2:11434 -e pcModel gemma4:e4b
 
 # Free the host's memory for the on-device run
-ollama stop gemma4:e4b 2>/dev/null || true
-sudo systemctl stop ollama 2>/dev/null || true
+timeout 30 ollama stop gemma4:e4b 2>/dev/null || true
+timeout 60 sudo systemctl stop ollama 2>/dev/null || true
+adb shell free -m 2>/dev/null | head -3
+df -h / | tail -1
 
 echo "=== pushing the on-device model ==="
-adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm
-adb shell "run-as $APP sh -c 'mkdir -p files/models && cp /data/local/tmp/model.litertlm files/models/gemma-4-E2B-it.litertlm'"
+timeout 600 adb push "$RUNNER_TEMP/gemma.litertlm" /data/local/tmp/model.litertlm || { echo "FAIL  model push"; fail=1; }
+timeout 600 adb shell "run-as $APP sh -c 'mkdir -p files/models && cp /data/local/tmp/model.litertlm files/models/gemma-4-E2B-it.litertlm'"
 adb shell rm /data/local/tmp/model.litertlm
 adb shell "run-as $APP ls -l files/models"
 run on-device -e class "$TEST#onDevice_teluguAnswer" -e onDevice true
